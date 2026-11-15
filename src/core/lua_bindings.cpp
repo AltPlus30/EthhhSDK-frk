@@ -8,6 +8,7 @@
 #include "log.h"
 #include "mods.h"
 #include "overlay.h"
+#include "xbox_prompts.h"
 
 extern "C" {
 #include "lua.h"
@@ -238,6 +239,10 @@ int g_player(lua_State* L)
     return 4;
 }
 
+int g_xbox_prompts(lua_State* L) {
+    lua_pushboolean(L, prompts::SetEnabled(ModId(L), lua_toboolean(L, 1) != 0));
+    return 1;
+}
 int g_player_addr(lua_State* L) { lua_pushinteger(L, (lua_Integer)game::PlayerTracker::Get().Addr()); return 1; }
 int g_player_detection_info(lua_State* L) { lua_pushstring(L, game::PlayerTracker::Get().DetectionInfo().c_str()); return 1; }
 int g_player_mode(lua_State* L)
@@ -523,6 +528,7 @@ void SetFuncs(lua_State* L, const luaL_Reg* funcs)
 void RegisterApi(lua_State* L, const mods::ModInfo& mod)
 {
     static const luaL_Reg gameFuncs[] = {
+        { "xbox_prompts", g_xbox_prompts },
         { "tick", g_tick }, { "frame", g_frame }, { "time", g_time },
         { "time_step", g_time_step }, { "timescale", g_timescale }, { "set_timescale", g_set_timescale },
         { "debug_flags", g_debug_flags }, { "set_debug_flags", g_set_debug_flags }, { "toggle_flag", g_toggle_flag },

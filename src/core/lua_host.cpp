@@ -1,6 +1,7 @@
 #include "lua_host.h"
 #include "util.h"
 #include "log.h"
+#include "xbox_prompts.h"
 
 extern "C" {
 #include "lua.h"
@@ -114,6 +115,7 @@ void CallHooks(LuaMod& m, const char* event, int nargs = 0, std::function<void(l
             ETH_ERROR("lua[%s]: %s", m.id.c_str(), err.c_str());
             if (m.errors >= 8) {
                 m.disabled = true;
+                prompts::Release(m.id);
                 ETH_ERROR("lua[%s]: too many errors, mod disabled", m.id.c_str());
                 mods::ModManager::Get().SetStatus(m.id, "error: " + err);
                 break;
@@ -192,6 +194,7 @@ bool LoadMod(mods::ModInfo& mod)
     RegisterImGui(m.L);
 
     if (!RunFile(m, mod.entry)) {
+        prompts::Release(mod.id);
         mod.status = "error: " + m.lastError;
         ETH_ERROR("lua[%s]: load failed: %s", mod.id.c_str(), m.lastError.c_str());
         lua_close(m.L);
@@ -208,6 +211,7 @@ bool LoadMod(mods::ModInfo& mod)
 
 void UnloadMod(const std::string& id)
 {
+    prompts::Release(id);
     auto it = g_mods.find(id);
     if (it == g_mods.end()) return;
     if (it->second.L) lua_close(it->second.L);
@@ -220,8 +224,10 @@ void UnloadMod(const std::string& id)
 
 void UnloadAll()
 {
-    for (auto& kv : g_mods)
+    for (auto& kv : g_mods) {
+        prompts::Release(kv.first);
         if (kv.second.L) lua_close(kv.second.L);
+    }
     g_mods.clear();
 }
 

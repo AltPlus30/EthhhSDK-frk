@@ -37,6 +37,8 @@ be installed into the game directory.
   pre-game manager on subsequent boots. Re-enable it from the in-game Settings,
   or set `[core] launcher=true` in `EthhhSDK.ini`.
 - `mods/trainer/mod.lua`: Lua trainer and inspection example.
+- `mods/XboxPrompts/mod.lua`: Xbox icons in native embedded button prompts;
+  [mapping, installation and verification status](docs/xbox-prompts.md).
 - `mods/HalfLifeMovement/src`: C# movement/camera showcase. F2 activates, F3
   stops, WASD moves, V jumps. Loading or re-enabling it always starts in standby.
 - Lua exposes `game`, `input`, `ui`, mod settings and lifecycle hooks. Native

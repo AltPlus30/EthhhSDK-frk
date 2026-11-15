@@ -1,0 +1,11 @@
+{
+  "id": "xbox-prompts",
+  "name": "Xbox Button Prompts",
+  "version": "1.0.0",
+  "author": "EthhhSDK",
+  "description": "Xbox icons in native tutorial, dialogue and HUD text, using the supplied controller layout.",
+  "type": "lua",
+  "entry": "mod.lua",
+  "api": 1,
+  "enabled": true
+}

@@ -57,6 +57,10 @@ foreach ($mode in @('additive','camera-only')) {
     & "$out\ManagedInteropTests.exe" 0.025 $mode
     if ($LASTEXITCODE -ne 0) { throw "Managed input-ownership regression failed ($mode)." }
 }
+& $cmake --build $build --config $Configuration --target eth_xbox_prompt_tests
+if ($LASTEXITCODE -ne 0) { throw 'Xbox prompt test build failed' }
+& "$out\eth_xbox_prompt_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Xbox prompt tests failed' }
 & "$out\eth_player_learning_tests.exe"
 if ($LASTEXITCODE -ne 0) { throw 'Player learning regression failed.' }
 & "$out\eth_player_tracker_tests.exe"

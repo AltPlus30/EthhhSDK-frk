@@ -89,6 +89,7 @@ target_include_directories(minhook PUBLIC ${ETH_TP}/minhook/include ${ETH_TP}/mi
 file(GLOB ETH_CORE_SRC ${ETH_ROOT}/src/core/*.cpp)
 add_library(EthhhSDK SHARED ${ETH_CORE_SRC})
 target_sources(EthhhSDK PRIVATE ${ETH_ROOT}/src/core/liquid_fonts.rc)
+target_sources(EthhhSDK PRIVATE ${ETH_ROOT}/src/core/xbox_prompts.rc)
 target_include_directories(EthhhSDK PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/lua)
 # NOTE: no mscoree.lib -- not installed with this SDK. clr_host.cpp binds
 # CorBindToRuntimeEx from mscoree.dll dynamically.

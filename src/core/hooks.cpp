@@ -8,6 +8,7 @@
 #include "ethhhpatch.h"
 #include "ethhhpatch_runtime.h"
 #include "pestcontrol.h"
+#include "xbox_prompts.h"
 
 #include <MinHook.h>
 
@@ -382,6 +383,7 @@ void Shutdown()
     input::LeaseMovementKeys(0, false);
     input::EndNativeTick();
     patch::runtime::Shutdown();
+    prompts::Shutdown();
     if (g_hookedHwnd && g_oldWndProc) {
         SetWindowLongPtrA(g_hookedHwnd, GWLP_WNDPROC, (LONG_PTR)g_oldWndProc);
         g_oldWndProc = nullptr;

@@ -1,4 +1,10 @@
 # The fake native ABI is isolated from build/dist and never installed.
+add_executable(eth_xbox_prompt_tests XboxPromptTests.cpp)
+target_include_directories(eth_xbox_prompt_tests PRIVATE ${ETH_ROOT}/src/core)
+set_target_properties(eth_xbox_prompt_tests PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tests/interop"
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")
+
 add_library(eth_test_native SHARED native_fake.cpp)
 set_target_properties(eth_test_native PROPERTIES
   OUTPUT_NAME EthhhSDK
