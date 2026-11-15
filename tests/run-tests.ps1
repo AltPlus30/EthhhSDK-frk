@@ -14,7 +14,7 @@ foreach ($file in @('EthhhSDK.dll','EthhhSDK.Managed.dll','mods\HalfLifeMovement
 }
 & $cmake -S $root -B $build -G 'Visual Studio 17 2022' -A Win32 -DETH_BUILD_TESTS=ON
 if ($LASTEXITCODE -ne 0) { throw 'Test configure failed.' }
-& $cmake --build $build --config $Configuration --target eth_test_native eth_player_learning_tests eth_player_tracker_tests eth_ui_motion_tests eth_pestcontrol_tests eth_pestcontrol_runtime_tests eth_chrome_preview eth_strat_identity_tests eth_ethhhpatch_policy_tests eth_ethhhpatch_projection_tests eth_ethhhpatch_camera_tests eth_ethhhpatch_interpolation_tests eth_ethhhpatch_entity_tests eth_entity_performance_tests eth_movement_input_tests eth_mouse_attack_tests eth_ethhhpatch_lens_tests eth_sha256_tests eth_camera_relative_heading_tests eth_display_config_tests --parallel 6
+& $cmake --build $build --config $Configuration --target eth_test_native eth_player_learning_tests eth_player_tracker_tests eth_ui_motion_tests eth_pestcontrol_tests eth_pestcontrol_runtime_tests eth_chrome_preview eth_strat_identity_tests eth_ethhhpatch_policy_tests eth_ethhhpatch_projection_tests eth_ethhhpatch_camera_tests eth_ethhhpatch_interpolation_tests eth_ethhhpatch_entity_tests eth_entity_performance_tests eth_movement_input_tests eth_mouse_attack_tests eth_ethhhpatch_lens_tests eth_sha256_tests eth_camera_relative_heading_tests eth_display_config_tests eth_overlay_cursor_tests --parallel 6
 if ($LASTEXITCODE -ne 0) { throw 'Native test shim build failed.' }
 & powershell -NoProfile -ExecutionPolicy Bypass -File "$root\tools\stage-notices.ps1"
 if ($LASTEXITCODE -ne 0) { throw 'Attribution/license staging failed.' }
@@ -63,6 +63,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Player learning regression failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'Production Auto+/Manual player tracker regression failed.' }
 & "$out\eth_ui_motion_tests.exe"
 if ($LASTEXITCODE -ne 0) { throw 'UI motion/startup regression failed.' }
+& "$out\eth_overlay_cursor_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Overlay software cursor regression failed.' }
 & "$out\eth_pestcontrol_tests.exe"
 if ($LASTEXITCODE -ne 0) { throw 'PestControl exact identity/lifetime regression failed.' }
 & "$out\eth_pestcontrol_runtime_tests.exe"

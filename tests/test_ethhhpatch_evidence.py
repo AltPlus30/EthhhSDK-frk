@@ -157,9 +157,9 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn("kZeroTickBytes[2] = { 0x90, 0x90 }", runtime)
         self.assertIn("ExactCodeWrite(game::A(kZeroTickWaitBranch), kZeroTickBytes, kWaitBytes)", runtime)
         self.assertNotIn("ActivateRenderSplit(", ui)  # activation follows verified Reset, never a direct UI write
-        self.assertIn("acknowledgeExperimental", ui)
+        self.assertNotIn("acknowledgeExperimental", ui)
         self.assertIn("RequestDisplayPlan(plan, monitor.hz, error)", ui)
-        self.assertIn("Restore previous display", ui)
+        self.assertIn("Remember for next launch", ui)
         self.assertTrue(self.result["runtime_render_split"]["activation_exposed_to_ui"])
 
     def test_movie_surface_and_uniform_fit_hook(self):
@@ -191,8 +191,8 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn("AppliedModeMatches", runtime)
         self.assertIn("ConfigureDisplay(previous.Windowed != FALSE", runtime)
         self.assertNotIn("->Reset(", runtime)
-        self.assertIn("launcherMode || !valid || !acknowledgeExperimental", ui)
-        self.assertIn("RequestRestore(error)", ui)
+        self.assertIn("!valid || pending || (launcherMode && !remember)", ui)
+        self.assertNotIn("RequestRestore(error)", ui)
 
     def test_collision_batch_contract_and_sdk_guards(self):
         trace = self.result["collision_trace"]

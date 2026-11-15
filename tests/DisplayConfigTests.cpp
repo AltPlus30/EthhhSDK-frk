@@ -38,6 +38,7 @@ int main(int argc, char** argv)
     Check(eth::patch::SaveStartupPlan(applied), "remember verified mode");
     Check(cfg.Load(path), "reload startup config");
     Check(eth::patch::LoadStartupPlan(saved) && Same(saved, applied), "windowed startup survives restart");
+    Check(eth::patch::RememberDisplay(), "legacy saved startup migrates to remember on");
     eth::patch::DisplayPlan future{3840, 2160, 60, false};
     Check(eth::patch::SavePlan(future), "save different future plan");
     Check(cfg.Load(path), "reload separate plans");
@@ -45,6 +46,7 @@ int main(int argc, char** argv)
     Check(eth::patch::LoadStartupPlan(saved) && Same(saved, applied), "future edits cannot replace verified startup");
     Check(eth::patch::DisableStartupPlan(), "disarm for restore or recovery");
     Check(cfg.Load(path) && !eth::patch::LoadStartupPlan(saved), "disabled startup survives restart");
+    Check(eth::patch::RememberDisplay(), "crash disarming preserves remember preference");
     Check(Same(eth::patch::LoadPlan(), future), "forget startup retains editable plan");
     Check(eth::patch::SaveStartupPlan(future), "remember fullscreen mode");
     Check(cfg.Load(path) && eth::patch::LoadStartupPlan(saved) && Same(saved, future), "fullscreen startup survives restart");
@@ -55,6 +57,15 @@ int main(int argc, char** argv)
     Check(cfg.Load(path) && Same(eth::patch::LoadPlan(), future), "invalid edits preserve last valid settings");
     cfg.SetInt("ethhhpatch_startup", "height", 0);
     Check(!eth::patch::LoadStartupPlan(saved), "corrupt startup not silently replaced by defaults");
+    Check(eth::patch::SetRememberDisplay(false), "turn remember off");
+    Check(cfg.Load(path) && !eth::patch::RememberDisplay() && !eth::patch::LoadStartupPlan(saved),
+        "remember off and disabled startup survive disk reload");
+    Check(eth::patch::SetRememberDisplay(true), "turn remember on");
+    Check(cfg.Load(path) && eth::patch::RememberDisplay() && !eth::patch::LoadStartupPlan(saved),
+        "enabling preference alone cannot arm an invalid or unverified mode");
+    Check(eth::patch::SaveStartupPlan(applied), "save mode after enabling remember");
+    Check(eth::patch::SetRememberDisplay(false), "disable a valid remembered mode");
+    Check(cfg.Load(path) && !eth::patch::LoadStartupPlan(saved), "off clears a previously valid startup mode");
     Check(DeleteFileA(path.c_str()) != FALSE, "remove fixture");
     std::printf("PASS production display config persistence: %d assertions\n", checks);
     return 0;

@@ -849,7 +849,7 @@ void DrawPatchPage(bool launcherMode)
     default: break;
     }
     if (ImGui::BeginTable("##patch_metrics",3,ImGuiTableFlags_SizingStretchSame)) {
-        ImGui::TableNextRow(); ImGui::TableNextColumn(); Metric("TRANSACTION",applyName,"Opt-in + reversible");
+        ImGui::TableNextRow(); ImGui::TableNextColumn(); Metric("DISPLAY",applyName,"Display status");
         ImGui::TableNextColumn(); Metric("GAME RENDER",status.sampled ? Format("%.0f FPS",status.gamePresentsPerSecond).c_str() : "Waiting","Measured game presents");
         ImGui::TableNextColumn(); Metric("SIMULATION",status.sampled ? Format("%.0f Hz",status.activeTicksPerSecond).c_str() : "60 Hz target","No extra animation ticks");
         ImGui::EndTable();
@@ -866,7 +866,7 @@ void DrawPatchPage(bool launcherMode)
     };
     if (ImGui::BeginTabBar("##patch_tabs")) {
         if (ImGui::BeginTabItem("Display")) {
-            SectionHeader("BUILD A DISPLAY PLAN","Valid edits save automatically. Apply changes the display only after an explicit acknowledgement.");
+            SectionHeader("DISPLAY SETTINGS","Choose your display mode, then apply your changes.");
             bool planChanged=false;
             if (ImGui::Button("1080p")) { plan.width=1920; plan.height=1080; planChanged=true; }
             ImGui::SameLine(); if (ImGui::Button("4K")) { plan.width=3840; plan.height=2160; planChanged=true; }
@@ -880,41 +880,41 @@ void DrawPatchPage(bool launcherMode)
                 ImGui::SameLine(); ImGui::SetNextItemWidth(140*ui::Scale()); planChanged|=ImGui::InputInt("Height",&plan.height);
                 ImGui::SetNextItemWidth(180*ui::Scale()); planChanged|=ImGui::InputInt("Render Hz (0 = monitor)",&plan.renderHz);
             }
-            planChanged|=checkbox("Windowed target",&plan.windowed);
+            planChanged|=checkbox("Windowed",&plan.windowed);
             if (monitor.hz) ImGui::TextWrapped("OS monitor: %dx%d @ %d Hz. This is not measured game FPS.",monitor.width,monitor.height,monitor.hz);
             else ImGui::TextWrapped("Monitor refresh unknown. No assumed fallback.");
             const bool valid=patch::ValidPlan(plan);
-            if (planChanged && valid) message=patch::SavePlan(plan) ? "Plan saved. Apply to change the game display." : "Plan save failed; use Save future plan to retry.";
+            if (planChanged && valid) message="Unapplied changes.";
             if (valid) ImGui::TextWrapped("Target aspect %.4f. Simulation remains fixed at 60 Hz.",patch::Aspect(plan.width,plan.height));
             else ImGui::TextWrapped("Invalid plan: width 640..7680, height 480..4320, render Hz 0 or 30..360.");
-            ImGui::BeginDisabled(!valid);
-            if (ui::GhostButton(compact ? "Save future plan" : "Save future plan (not applied)")) message=patch::SavePlan(plan) ? "Plan saved. No runtime display change." : "Plan could not be saved.";
-            ImGui::EndDisabled();
             Divider(4);
-            static bool acknowledgeExperimental=false;
-            checkbox("I understand this display patch is experimental",&acknowledgeExperimental);
             const bool pending=apply.state==patch::runtime::ApplyState::Applying || apply.state==patch::runtime::ApplyState::RollingBack;
-            ImGui::BeginDisabled(launcherMode || !valid || !acknowledgeExperimental || pending || apply.state==patch::runtime::ApplyState::Active);
-            if (ui::AccentButton(compact ? "Apply patch" : "Apply experimental patch")) {
+            bool remember=patch::RememberDisplay();
+            ImGui::BeginDisabled(pending);
+            if (checkbox("Remember for next launch",&remember)) {
+                bool saved=patch::SetRememberDisplay(remember);
+                if (!remember && !launcherMode) saved=patch::runtime::ForgetStartupDisplay() && saved;
+                else if (!launcherMode && apply.state==patch::runtime::ApplyState::Active)
+                    saved=patch::SaveStartupPlan(apply.requested) && saved;
+                message=saved ? (remember ? "Remember enabled. Apply changes to save the selected mode." : "Display changes apply to this session only.") : "Could not save display preference.";
+            }
+            ImGui::EndDisabled();
+            ImGui::BeginDisabled(!valid || pending || (launcherMode && !remember));
+            if (ui::AccentButton(launcherMode ? "Save display settings" : "Apply")) {
                 std::string error;
-                if (!patch::SavePlan(plan)) message="Plan save failed; display was not changed.";
+                if (!patch::SavePlan(plan)) message="Settings could not be saved.";
+                else if (launcherMode) message=patch::SaveStartupPlan(plan) ? "Display settings saved for game startup." : "Could not save startup display.";
                 else if (patch::runtime::RequestDisplayPlan(plan, monitor.hz, error)) message="Waiting for exact Reset verification.";
                 else message="Apply refused: "+error;
             }
             ImGui::EndDisabled();
-            if (!compact) ImGui::SameLine(); ImGui::BeginDisabled(launcherMode || apply.state!=patch::runtime::ApplyState::Active);
-            if (ui::GhostButton(compact ? "Restore display" : "Restore previous display")) {
-                std::string error; message=patch::runtime::RequestRestore(error) ? "Restore requested." : "Restore refused: "+error;
-            }
-            ImGui::EndDisabled();
             patch::DisplayPlan startupPlan;
             const bool startupEnabled=patch::LoadStartupPlan(startupPlan);
-            ImGui::TextWrapped("Successful Apply remembers that exact mode for the next launch, including when skipping the launcher. Future-plan edits alone do not change the startup mode.");
+            ImGui::TextWrapped("Remember reapplies your saved mode after startup settles. Turn it off to use the game's normal display settings next launch.");
             if (startupEnabled) {
                 ImGui::TextWrapped("Next launch: %dx%d, %s.",startupPlan.width,startupPlan.height,startupPlan.windowed ? "windowed" : "fullscreen");
-                if (ui::GhostButton("Forget startup display")) message=patch::runtime::ForgetStartupDisplay() ? "Automatic startup display disabled; future plan retained." : "Could not save startup preference.";
             }
-            if (launcherMode) ImGui::TextWrapped("Start the game manually, then open F9 to apply or restore.");
+            if (launcherMode) ImGui::TextWrapped("Enable Remember to save a startup mode, or open F9 in-game to apply settings for this session.");
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Camera")) {

@@ -8,25 +8,31 @@ independently of HL and display patches. Off by default; live acceptance pending
 
 The pre-game and F9 managers include an **EthhhPatch** page for 1080p, 4K or
 monitor-size targets, fullscreen/windowed selection, and independent render Hz
-(0 selects the reported monitor refresh). Valid edits automatically persist the
-future plan without applying it; **Save future plan** provides an explicit save/retry.
-The first Apply remains an in-game F9 action after experimental acknowledgement.
+(0 selects the reported monitor refresh). **Apply** changes the selected mode
+in-game, including when another mode is already active. There is no experimental
+acknowledgement or separate save/restore/forget workflow.
+**Remember for next launch** controls startup persistence; turning it off keeps
+the current mode for this session and cancels automatic startup/recovery.
+Enabling it while a mode is active remembers that verified mode immediately;
+edited settings still need Apply. In the launcher, enable Remember and use
+**Save display settings** to select the next startup mode.
 
-A successful exact Reset additionally saves a separate `[ethhhpatch_startup]`
-snapshot. The next boot reapplies that verified snapshot once, on the game/window
+A successful exact Reset saves a separate `[ethhhpatch_startup]`
+snapshot when Remember is enabled. The next boot applies that snapshot on the game/window
 thread after D3D Reset and window/input hooks are ready, the window is visible,
 focused and not minimized, F9 is closed, View is readable and the observed movie
 hold has elapsed. It additionally requires two seconds of fresh successful game
 Presents without a Reset, movie, long presentation gap or focus interruption.
-This works with the launcher skipped. Future-plan edits do not change that
-snapshot; Restore and **Forget startup display** disable it without deleting the
-editable plan. A failed/refused startup attempt is not retried automatically.
+This works with the launcher skipped. Unapplied edits do not change that
+snapshot. The `ethhhpatch.remember_display` preference is separate from the
+crash-recovery startup flag; existing saved startup modes migrate to Remember on.
+A failed/refused startup attempt is not retried automatically.
 The startup flag is persisted disabled before attempting a mode, then rearmed
 only after an exact verified Reset succeeds, avoiding repeated attempts after a
 startup failure/crash. If a later successful native Reset replaces an automatically
 applied mode within ten seconds, one recovery of that same verified mode may run
 after another quiet interval. A second override is not fought; manual Apply or
-Restore cancels recovery. Failed transactions are not automatically retried.
+turning Remember off cancels recovery. Failed transactions are not automatically retried.
 Safe mode does not enter this tick-hook path.
 
 ### 2026-11-15 startup/windowed correction
@@ -54,8 +60,8 @@ Application preflights an exact fullscreen adapter mode or establishes the exact
 windowed client size, captures rollback state, and asks the game's own mode/Reset
 lifecycle to apply it. The Reset parameters must exactly match the request before
 the render split, aspect/culling, HUD, movie, and pacing policies activate. Any
-failure or mismatch requests rollback; **Restore previous display** is available
-while active. The pre-game launcher cannot apply or restore a display transaction.
+failure or mismatch requests automatic rollback. The pre-game launcher saves
+startup settings without changing the desktop display.
 
 The new device Present detour preserves all arguments and the original HRESULT.
 It observes only the verified game return site `0x44A485` and movie return site

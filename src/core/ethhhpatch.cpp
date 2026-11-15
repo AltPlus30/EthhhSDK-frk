@@ -243,6 +243,21 @@ bool SavePlan(const DisplayPlan& plan)
     return saved;
 }
 
+bool RememberDisplay()
+{
+    auto& cfg = Config::Get();
+    return cfg.GetBool("ethhhpatch", "remember_display",
+        cfg.GetBool("ethhhpatch_startup", "enabled", false));
+}
+
+bool SetRememberDisplay(bool remember)
+{
+    auto& cfg = Config::Get();
+    cfg.SetBool("ethhhpatch", "remember_display", remember);
+    if (!remember) cfg.SetBool("ethhhpatch_startup", "enabled", false);
+    return cfg.Save();
+}
+
 bool LoadStartupPlan(DisplayPlan& plan)
 {
     auto& cfg = Config::Get();
@@ -274,6 +289,8 @@ bool SaveStartupPlan(const DisplayPlan& plan)
 bool DisableStartupPlan()
 {
     auto& cfg = Config::Get();
+    // Preserve the user's preference while temporarily disarming crash recovery.
+    cfg.SetBool("ethhhpatch", "remember_display", RememberDisplay());
     cfg.SetBool("ethhhpatch_startup", "enabled", false);
     return cfg.Save();
 }

@@ -31,6 +31,8 @@ be installed into the game directory.
 ## Controls and mods
 
 - F9: manager; pause-on-overlay and input handling are configurable.
+- F9 draws its own foreground arrow/text cursor, independent of the game's
+  hidden Windows cursor. It yields on focus loss and disappears on closing F9.
 - Settings > Startup > **Skip launcher and start the game directly** skips the
   pre-game manager on subsequent boots. Re-enable it from the in-game Settings,
   or set `[core] launcher=true` in `EthhhSDK.ini`.
@@ -94,13 +96,12 @@ protection and flushing the instruction cache for every movement write.
 
 The manager has an **EthhhPatch** page with 1080p/4K/monitor-size planning,
 windowed/fullscreen targets, measured Present/tick cadence, projection diagnostics,
-and an acknowledged in-game experimental Apply/Restore transaction. Saving a
-plan does **not** apply it; the pre-game launcher cannot change the display.
-Valid display edits now save automatically. A successful, Reset-verified Apply
-also remembers that exact resolution/windowed mode for the next game launch,
-including when skipping the launcher. Editing the future plan does not replace
-the remembered mode. Restore or **Forget startup display** disables automatic
-startup application. Failed startup attempts are disarmed until another successful
+and a simple **Apply** action with **Remember for next launch**.
+Apply can change an already-active mode directly. With Remember enabled, a
+successful Reset saves that mode for startup, including when skipping the launcher.
+Turning Remember off keeps the current display but disables startup application.
+The launcher offers **Save display settings** when Remember is enabled.
+Failed startup attempts are disarmed until another successful
 manual Apply; safe mode still bypasses game hooks and startup application.
 Startup waits for a settled game-render interval instead of applying as soon as
 the device appears. Mode flags are set before window resizing, and one bounded

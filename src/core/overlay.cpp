@@ -10,6 +10,7 @@
 //    * WndProc routing so the game ignores input while the menu is open
 // ===========================================================================
 #include "overlay.h"
+#include "overlay_cursor.h"
 #include "imgui_ext.h"
 #include "ui_pages.h"
 #include "mods.h"
@@ -210,6 +211,13 @@ bool OnWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     if (!g_visible)
         return false;
 
+    // Own the client cursor even when game-input blocking is disabled. Do not
+    // let the original game WndProc hide/replace the menu's software pointer.
+    if (msg == WM_SETCURSOR && LOWORD(lp) == HTCLIENT) {
+        SetCursor(nullptr);
+        return true;
+    }
+
     // Escape closes the menu unless the user is typing in a field.
     if (msg == WM_KEYDOWN && (int)wp == VK_ESCAPE && !ImGui::GetIO().WantTextInput) {
         SetVisible(false);
@@ -245,10 +253,21 @@ void RenderFrame(IDirect3DDevice9* device, bool moviePath)
     SyncPauseState();
 
     ImGuiIO& io = ImGui::GetIO();
-    io.MouseDrawCursor = g_visible;
+    // The overlay draws a geometry cursor last; never mix it with ImGui's
+    // atlas cursor or depend on the native ShowCursor visibility counter.
+    io.MouseDrawCursor = false;
 
     ImGui_ImplDX9_NewFrame();
+    const bool focused = GetForegroundWindow() == hwnd;
+    const bool cursorChangesDisabled = (io.ConfigFlags & ImGuiConfigFlags_NoMouseCursorChange) != 0;
+    if (g_visible) io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     ImGui_ImplWin32_NewFrame();
+    if (!cursorChangesDisabled) io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+    if (g_visible && focused) {
+        POINT point{};
+        if (GetCursorPos(&point) && ScreenToClient(hwnd,&point))
+            io.AddMousePosEvent(float(point.x),float(point.y));
+    }
     ImGui::NewFrame();
     ui::BeginGlassFrame();
 
@@ -262,12 +281,13 @@ void RenderFrame(IDirect3DDevice9* device, bool moviePath)
         DrawManagerWindow();
 
     ui::pages::DrawStartupWatermark();
+    DrawMenuCursor(g_visible,focused,ui::Scale());
 
     ImGui::Render();
     ui::RenderGlassDrawData(device,ImGui::GetDrawData());
 
-    if (g_visible)
-        SetCursor(LoadCursorA(nullptr, IDC_ARROW));
+    if (g_visible && focused)
+        SetCursor(nullptr);
 }
 
 // ---------------------------------------------------------------------------

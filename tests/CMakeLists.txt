@@ -79,6 +79,13 @@ set_target_properties(eth_display_config_tests PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tests/interop"
   RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")
 
+add_executable(eth_overlay_cursor_tests OverlayCursorTests.cpp)
+target_include_directories(eth_overlay_cursor_tests PRIVATE ${ETH_ROOT}/src/core)
+target_link_libraries(eth_overlay_cursor_tests PRIVATE imgui)
+set_target_properties(eth_overlay_cursor_tests PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tests/interop"
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")
+
 add_executable(eth_sha256_tests Sha256Tests.cpp ${ETH_ROOT}/src/core/util.cpp)
 target_include_directories(eth_sha256_tests PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/imgui)
 target_link_libraries(eth_sha256_tests PRIVATE bcrypt.lib user32.lib)

@@ -49,6 +49,20 @@ class HotPathGuards(unittest.TestCase):
         self.assertIn("frame - previous < 30", self.patch)
         self.assertIn("never validate every render", self.patch)
 
+    def test_overlay_owns_cursor_rendering_and_client_cursor_messages(self):
+        overlay = (ROOT / "src/core/overlay.cpp").read_text(encoding="utf-8")
+        cursor = (ROOT / "src/core/overlay_cursor.h").read_text(encoding="utf-8")
+        render = overlay[overlay.index("void RenderFrame("):overlay.index("void OnGameTick()")]
+        self.assertLess(render.index("DrawMenuCursor("), render.index("ImGui::Render()"))
+        self.assertGreater(render.index("DrawMenuCursor("), render.index("DrawStartupWatermark()"))
+        self.assertIn("io.MouseDrawCursor = false", render)
+        self.assertIn("cursorChangesDisabled", render)
+        self.assertIn("ScreenToClient(hwnd,&point)", render)
+        self.assertNotIn("ShowCursor(", overlay)
+        self.assertIn("msg == WM_SETCURSOR && LOWORD(lp) == HTCLIENT", overlay)
+        self.assertIn("GetForegroundDrawList()", cursor)
+        self.assertIn("!visible || !focused", cursor)
+
     def test_startup_display_waits_for_hooks_and_disarms_before_request(self):
         tick = self.runtime[self.runtime.index("void OnTickCompleted()"):self.runtime.index("void BeginNativeMovementTick()")]
         for guard in ("hooks::D3DHooked()", "hooks::WndProcHooked()", "GetCurrentThreadId()",
@@ -65,12 +79,18 @@ class HotPathGuards(unittest.TestCase):
         self.assertIn("DisableStartupPlan()", restore)
         ui = (ROOT / "src/core/ui_pages.cpp").read_text(encoding="utf-8")
         self.assertIn("if (planChanged && valid)", ui)
-        self.assertIn("planChanged|=checkbox(\"Windowed target\"", ui)
+        self.assertIn("planChanged|=checkbox(\"Windowed\"", ui)
+        self.assertIn("remember && SaveStartupPlan(status.requested)", reset)
+        self.assertIn("Remember for next launch", ui)
+        self.assertNotIn("acknowledgeExperimental", ui)
+        self.assertNotIn("Save future plan", ui)
 
     def test_window_mode_is_set_before_synchronous_resize(self):
         request = self.runtime[self.runtime.index("bool RequestDisplayPlan("):self.runtime.index("bool RequestRestore(")]
         self.assertLess(request.index("ConfigureDisplay(plan.windowed"), request.index("!ResizeClient("))
         self.assertLess(request.index("g_applyStatus.state = ApplyState::Applying"), request.index("ConfigureDisplay(plan.windowed"))
+        self.assertNotIn("restore the active display transaction", request)
+        self.assertLess(request.index("DeactivateRenderSplit()"), request.index("ConfigureDisplay(plan.windowed"))
         self.assertIn("StartRollback(error.c_str())", request[request.index("!ResizeClient("):])
         rollback = self.runtime[self.runtime.index("bool StartRollback("):self.runtime.index("bool ExactCodeWrite(")]
         self.assertLess(rollback.index("ConfigureDisplay("), rollback.index("SetWindowPos("))

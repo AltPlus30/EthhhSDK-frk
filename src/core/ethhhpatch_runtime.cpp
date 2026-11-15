@@ -1112,9 +1112,6 @@ bool RequestDisplayPlan(const DisplayPlan& plan, int monitorHz, std::string& err
         if (g_applyStatus.state == ApplyState::Applying || g_applyStatus.state == ApplyState::RollingBack) {
             error = "another display transaction is pending"; return false;
         }
-        if (g_applyStatus.state == ApplyState::Active) {
-            error = "restore the active display transaction before applying another"; return false;
-        }
     }
     IDirect3DDevice9* device = (IDirect3DDevice9*)game::Device();
     HWND window = (HWND)game::GameHwnd();
@@ -1133,6 +1130,7 @@ bool RequestDisplayPlan(const DisplayPlan& plan, int monitorHz, std::string& err
     } else if (!ExactFullscreenModeSupported(device, plan.width, plan.height, targetHz)) {
         error = "exact fullscreen mode is not reported by this adapter"; return false;
     } else if (!InstallHooks()) { error = "compatibility hooks could not be installed"; return false; }
+    DeactivateRenderSplit();
     {
         std::lock_guard<std::mutex> lock(g_applyMutex);
         g_previousParameters = previous; g_previousWindowRect = previousRect;
@@ -1220,7 +1218,8 @@ void OnResetResult(const D3DPRESENT_PARAMETERS* parameters, HRESULT result)
             parameters->FullScreen_RefreshRateInHz) &&
             ActivateRenderSplit((float)Aspect(status.requested.width, status.requested.height),
                 parameters->BackBufferWidth, parameters->BackBufferHeight, status.targetHz)) {
-            const bool remembered = SaveStartupPlan(status.requested);
+            const bool remember = RememberDisplay();
+            const bool remembered = remember && SaveStartupPlan(status.requested);
             if (g_startupApplyInFlight && !g_startupApplyIsRecovery) {
                 const int64_t counter = CameraCounter();
                 g_startupDisplayRecovery.Arm(counter ? double(counter) / g_counterFrequency : 0);
@@ -1229,10 +1228,11 @@ void OnResetResult(const D3DPRESENT_PARAMETERS* parameters, HRESULT result)
             std::lock_guard<std::mutex> lock(g_applyMutex);
             g_applyStatus.state = ApplyState::Active;
             g_applyStatus.detail = "display Reset matched; render split/culling/HUD timing active";
-            g_applyStatus.detail += remembered ? "; remembered for next launch" : "; WARNING: could not save startup display";
+            g_applyStatus.detail += !remember ? "; this session only" :
+                remembered ? "; remembered for next launch" : "; WARNING: could not save startup display";
             ETH_INFO("EthhhPatch display verified: %dx%d %s; aspect %.6f; startup %s",
                 status.requested.width, status.requested.height, status.requested.windowed ? "windowed" : "fullscreen",
-                g_aspect.load(), remembered ? "remembered" : "save failed");
+                g_aspect.load(), !remember ? "session only" : remembered ? "remembered" : "save failed");
             return;
         }
         StartRollback(FAILED(result) ? "display Reset failed" : "Reset result did not exactly match the request");
