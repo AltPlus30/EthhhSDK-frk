@@ -18,6 +18,7 @@ void OnTickCompleted();
 void BeginNativeMovementTick();
 void EndNativeMovementTick();
 void BeforeGamePresent();
+void OnGamePresentResult(bool success);
 bool AdjustHudProjection(uintptr_t returnAddress, const D3DMATRIX* input, D3DMATRIX& output);
 
 enum class ApplyState { Idle, Applying, Active, RollingBack, RolledBack, Failed };
@@ -31,6 +32,7 @@ struct ApplyStatus {
 // Requests run on the game window/render thread, through the engine Reset path.
 bool RequestDisplayPlan(const DisplayPlan& plan, int monitorHz, std::string& error);
 bool RequestRestore(std::string& error);
+bool ForgetStartupDisplay();
 void OnResetResult(const D3DPRESENT_PARAMETERS* parameters, HRESULT result);
 ApplyStatus ReadApplyStatus();
 void SetExternalCameraOwned(bool owned);

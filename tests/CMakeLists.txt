@@ -70,6 +70,15 @@ endforeach()
 # Calls the production Sha256FileHex so the BCrypt object-length query stays
 # correct. An aliased property buffer silently returned an empty hash and made
 # the live WASD keyboard hook refuse to install.
+add_executable(eth_display_config_tests DisplayConfigTests.cpp
+  ${ETH_ROOT}/src/core/config.cpp ${ETH_ROOT}/src/core/ethhhpatch.cpp
+  ${ETH_ROOT}/src/core/util.cpp ${ETH_ROOT}/src/core/log.cpp)
+target_include_directories(eth_display_config_tests PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/imgui)
+target_link_libraries(eth_display_config_tests PRIVATE bcrypt.lib user32.lib)
+set_target_properties(eth_display_config_tests PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tests/interop"
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")
+
 add_executable(eth_sha256_tests Sha256Tests.cpp ${ETH_ROOT}/src/core/util.cpp)
 target_include_directories(eth_sha256_tests PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/imgui)
 target_link_libraries(eth_sha256_tests PRIVATE bcrypt.lib user32.lib)

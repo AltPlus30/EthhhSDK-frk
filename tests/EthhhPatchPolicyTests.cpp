@@ -1,4 +1,5 @@
 #include "ethhhpatch_policy.h"
+#include "ethhhpatch_display_startup.h"
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -45,5 +46,42 @@ int main()
     Check(stall.ticks==4 && stall.dropped==56 && std::abs(stall.alpha-.3)<1e-8,"bounded catchup with explicit debt policy");
     scheduler.Reset(); Check(scheduler.Advance(1.0/100).ticks==0,"reset clears tick debt");
     Check(kSimulationStep==1.0/60,"simulation interval unchanged");
+    DisplayStartupGate boot;
+    Check(!boot.Ready(10), "window/device readiness alone cannot trigger startup");
+    boot.Present(10, true);
+    Check(!boot.Ready(10), "first game present cannot trigger startup");
+    for (int i=1;i<=100;++i) boot.Present(10+i*.01, true);
+    Check(!boot.Ready(11), "one second is not a settled renderer");
+    boot.Reset(); // the later native boot Reset seen in the installed log
+    for (int i=0;i<=150;++i) boot.Present(11.1+i*.01, true);
+    Check(!boot.Ready(12.6), "native Reset restarts the entire quiet interval");
+    for (int i=151;i<=210;++i) boot.Present(11.1+i*.01, true);
+    Check(boot.Ready(13.2), "settled successful game presents permit startup");
+    Check(!boot.Ready(13.6), "stale presents cannot trigger after focus/device pause");
+    boot.Present(14, true);
+    Check(!boot.Ready(14), "long present gap discards stale quiet history");
+    boot.Reset(); // movies must not accumulate game-ready time
+    Check(!boot.Ready(50), "movie/Reset interruption never becomes ready by waiting");
+    for (int i=0;i<=210;++i) boot.Present(50+i*.01, true);
+    Check(boot.Ready(52.1), "game presentation reacquires after movie");
+    boot.Present(52.11, false);
+    Check(!boot.Ready(52.11), "failed Present discards startup history");
+    boot.Present(53, true);
+    boot.Present(52, true);
+    Check(!boot.Ready(53), "clock regression cannot reuse old history");
+    boot.Present(std::numeric_limits<double>::quiet_NaN(), true);
+    Check(!boot.Ready(54), "invalid time discards history");
+    DisplayStartupRecovery recovery;
+    Check(!recovery.Queue(5), "manual transactions do not arm startup recovery");
+    recovery.Arm(10);
+    Check(recovery.Queue(12) && recovery.Pending(), "late native boot override queues one recovery");
+    Check(!recovery.Queue(12.1), "duplicate Resets cannot spend another recovery");
+    recovery.Take();
+    Check(!recovery.Pending() && !recovery.Queue(13), "recovered startup cannot loop on another override");
+    recovery.Arm(30);
+    Check(!recovery.Queue(41), "ordinary later mode changes are not fought");
+    recovery.Arm(50);
+    recovery.Cancel();
+    Check(!recovery.Pending() && !recovery.Queue(51), "manual Apply/Restore cancels automatic recovery");
     printf("PASS EthhhPatch policy: %d assertions (prototype NOT installed in App_Run)\n",checks);
 }

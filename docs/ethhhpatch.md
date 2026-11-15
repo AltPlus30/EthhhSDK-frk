@@ -8,9 +8,47 @@ independently of HL and display patches. Off by default; live acceptance pending
 
 The pre-game and F9 managers include an **EthhhPatch** page for 1080p, 4K or
 monitor-size targets, fullscreen/windowed selection, and independent render Hz
-(0 selects the reported monitor refresh). **Save future plan** persists the
-plan without applying it. Actual application is available only from the in-game
-F9 manager after an explicit experimental acknowledgement.
+(0 selects the reported monitor refresh). Valid edits automatically persist the
+future plan without applying it; **Save future plan** provides an explicit save/retry.
+The first Apply remains an in-game F9 action after experimental acknowledgement.
+
+A successful exact Reset additionally saves a separate `[ethhhpatch_startup]`
+snapshot. The next boot reapplies that verified snapshot once, on the game/window
+thread after D3D Reset and window/input hooks are ready, the window is visible,
+focused and not minimized, F9 is closed, View is readable and the observed movie
+hold has elapsed. It additionally requires two seconds of fresh successful game
+Presents without a Reset, movie, long presentation gap or focus interruption.
+This works with the launcher skipped. Future-plan edits do not change that
+snapshot; Restore and **Forget startup display** disable it without deleting the
+editable plan. A failed/refused startup attempt is not retried automatically.
+The startup flag is persisted disabled before attempting a mode, then rearmed
+only after an exact verified Reset succeeds, avoiding repeated attempts after a
+startup failure/crash. If a later successful native Reset replaces an automatically
+applied mode within ten seconds, one recovery of that same verified mode may run
+after another quiet interval. A second override is not fought; manual Apply or
+Restore cancels recovery. Failed transactions are not automatically retried.
+Safe mode does not enter this tick-hook path.
+
+### 2026-11-15 startup/windowed correction
+
+Installed logs from `E:\Games\I-Ninja` showed a startup client-size refusal at
+12:04:27 and successful activation at 12:05:42 followed by compatibility removal
+at 12:05:43. The saved config did contain 1280x720 windowed; persistence alone
+did not address the transition ordering or the later startup Reset.
+
+The engine mode request now precedes `SetWindowPos`, for both Apply and rollback.
+The engine's mode flag must already say windowed when synchronous `WM_SIZE`
+handling reads the client dimensions; previously the fullscreen branch could
+copy the old fullscreen dimensions back. No direct D3D Reset or executable
+rewrite is used for the mode transition. After a successful Reset, verification
+now queries the actual swap-chain presentation parameters instead of treating
+the pre-call request as proof of the resulting mode. Requests, observed Reset
+parameters, rollback reasons and later overrides are logged explicitly.
+
+Quiet-window and bounded-recovery policies have deterministic offline tests.
+After installing and retesting the corrected build, the user reported that it
+works as intended. This confirms the reported display/startup scenario, not
+exhaustive acceptance of every adapter mode or compatibility policy.
 
 Application preflights an exact fullscreen adapter mode or establishes the exact
 windowed client size, captures rollback state, and asks the game's own mode/Reset

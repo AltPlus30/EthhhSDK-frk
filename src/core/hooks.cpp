@@ -144,6 +144,8 @@ HRESULT WINAPI PresentDetour(IDirect3DDevice9* device, const RECT* source, const
     if (device == game::Device() && ret == game::A(0x496CB6)) patch::runtime::NotifyMoviePresent();
     if (device == game::Device() && ret == game::A(0x44A485)) patch::runtime::BeforeGamePresent();
     const HRESULT hr = g_presentOrig ? g_presentOrig(device, source, dest, window, dirty) : D3DERR_INVALIDCALL;
+    if (device == game::Device() && ret == game::A(0x44A485))
+        patch::runtime::OnGamePresentResult(SUCCEEDED(hr));
     // Exact statically verified game/movie callers; no overlay FPS substitution.
     if (device == game::Device()) {
         __try { patch::OnPresent(device, hr, ret == game::A(0x44A485), ret == game::A(0x496CB6)); }

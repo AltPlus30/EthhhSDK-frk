@@ -14,7 +14,7 @@ foreach ($file in @('EthhhSDK.dll','EthhhSDK.Managed.dll','mods\HalfLifeMovement
 }
 & $cmake -S $root -B $build -G 'Visual Studio 17 2022' -A Win32 -DETH_BUILD_TESTS=ON
 if ($LASTEXITCODE -ne 0) { throw 'Test configure failed.' }
-& $cmake --build $build --config $Configuration --target eth_test_native eth_player_learning_tests eth_player_tracker_tests eth_ui_motion_tests eth_pestcontrol_tests eth_pestcontrol_runtime_tests eth_chrome_preview eth_strat_identity_tests eth_ethhhpatch_policy_tests eth_ethhhpatch_projection_tests eth_ethhhpatch_camera_tests eth_ethhhpatch_interpolation_tests eth_ethhhpatch_entity_tests eth_entity_performance_tests eth_movement_input_tests eth_mouse_attack_tests eth_ethhhpatch_lens_tests eth_sha256_tests eth_camera_relative_heading_tests --parallel 6
+& $cmake --build $build --config $Configuration --target eth_test_native eth_player_learning_tests eth_player_tracker_tests eth_ui_motion_tests eth_pestcontrol_tests eth_pestcontrol_runtime_tests eth_chrome_preview eth_strat_identity_tests eth_ethhhpatch_policy_tests eth_ethhhpatch_projection_tests eth_ethhhpatch_camera_tests eth_ethhhpatch_interpolation_tests eth_ethhhpatch_entity_tests eth_entity_performance_tests eth_movement_input_tests eth_mouse_attack_tests eth_ethhhpatch_lens_tests eth_sha256_tests eth_camera_relative_heading_tests eth_display_config_tests --parallel 6
 if ($LASTEXITCODE -ne 0) { throw 'Native test shim build failed.' }
 & powershell -NoProfile -ExecutionPolicy Bypass -File "$root\tools\stage-notices.ps1"
 if ($LASTEXITCODE -ne 0) { throw 'Attribution/license staging failed.' }
@@ -67,6 +67,9 @@ if ($LASTEXITCODE -ne 0) { throw 'UI motion/startup regression failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'PestControl exact identity/lifetime regression failed.' }
 & "$out\eth_pestcontrol_runtime_tests.exe"
 if ($LASTEXITCODE -ne 0) { throw 'Production PestControl tick/cdecl/telemetry regression failed.' }
+$displayFixture = Join-Path $out ("display-config-" + [Guid]::NewGuid().ToString('N') + ".ini")
+& "$out\eth_display_config_tests.exe" $displayFixture
+if ($LASTEXITCODE -ne 0) { throw 'Display configuration persistence regression failed.' }
 & "$build\tests\preview\eth_chrome_preview.exe" --cpu
 if ($LASTEXITCODE -ne 0) { throw 'Production CPU UI/layout/audio/binding regression failed.' }
 & "$out\eth_strat_identity_tests.exe"

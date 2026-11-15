@@ -866,23 +866,25 @@ void DrawPatchPage(bool launcherMode)
     };
     if (ImGui::BeginTabBar("##patch_tabs")) {
         if (ImGui::BeginTabItem("Display")) {
-            SectionHeader("BUILD A DISPLAY PLAN","Saving is harmless. Apply changes the display only after an explicit acknowledgement.");
-            if (ImGui::Button("1080p")) plan.width=1920,plan.height=1080;
-            ImGui::SameLine(); if (ImGui::Button("4K")) plan.width=3840,plan.height=2160;
-            if (!compact) ImGui::SameLine(); if (ImGui::Button("Monitor size") && monitor.width && monitor.height) plan.width=monitor.width,plan.height=monitor.height;
+            SectionHeader("BUILD A DISPLAY PLAN","Valid edits save automatically. Apply changes the display only after an explicit acknowledgement.");
+            bool planChanged=false;
+            if (ImGui::Button("1080p")) { plan.width=1920; plan.height=1080; planChanged=true; }
+            ImGui::SameLine(); if (ImGui::Button("4K")) { plan.width=3840; plan.height=2160; planChanged=true; }
+            if (!compact) ImGui::SameLine(); if (ImGui::Button("Monitor size") && monitor.width && monitor.height) { plan.width=monitor.width; plan.height=monitor.height; planChanged=true; }
             if (compact) {
-                ImGui::TextUnformatted("Width"); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::InputInt("##width",&plan.width);
-                ImGui::TextUnformatted("Height"); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::InputInt("##height",&plan.height);
-                ImGui::TextWrapped("Render Hz (0 = monitor)"); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::InputInt("##render_hz",&plan.renderHz);
+                ImGui::TextUnformatted("Width"); ImGui::SetNextItemWidth(-FLT_MIN); planChanged|=ImGui::InputInt("##width",&plan.width);
+                ImGui::TextUnformatted("Height"); ImGui::SetNextItemWidth(-FLT_MIN); planChanged|=ImGui::InputInt("##height",&plan.height);
+                ImGui::TextWrapped("Render Hz (0 = monitor)"); ImGui::SetNextItemWidth(-FLT_MIN); planChanged|=ImGui::InputInt("##render_hz",&plan.renderHz);
             } else {
-                ImGui::SetNextItemWidth(140*ui::Scale()); ImGui::InputInt("Width",&plan.width);
-                ImGui::SameLine(); ImGui::SetNextItemWidth(140*ui::Scale()); ImGui::InputInt("Height",&plan.height);
-                ImGui::SetNextItemWidth(180*ui::Scale()); ImGui::InputInt("Render Hz (0 = monitor)",&plan.renderHz);
+                ImGui::SetNextItemWidth(140*ui::Scale()); planChanged|=ImGui::InputInt("Width",&plan.width);
+                ImGui::SameLine(); ImGui::SetNextItemWidth(140*ui::Scale()); planChanged|=ImGui::InputInt("Height",&plan.height);
+                ImGui::SetNextItemWidth(180*ui::Scale()); planChanged|=ImGui::InputInt("Render Hz (0 = monitor)",&plan.renderHz);
             }
-            checkbox("Windowed target",&plan.windowed);
+            planChanged|=checkbox("Windowed target",&plan.windowed);
             if (monitor.hz) ImGui::TextWrapped("OS monitor: %dx%d @ %d Hz. This is not measured game FPS.",monitor.width,monitor.height,monitor.hz);
             else ImGui::TextWrapped("Monitor refresh unknown. No assumed fallback.");
             const bool valid=patch::ValidPlan(plan);
+            if (planChanged && valid) message=patch::SavePlan(plan) ? "Plan saved. Apply to change the game display." : "Plan save failed; use Save future plan to retry.";
             if (valid) ImGui::TextWrapped("Target aspect %.4f. Simulation remains fixed at 60 Hz.",patch::Aspect(plan.width,plan.height));
             else ImGui::TextWrapped("Invalid plan: width 640..7680, height 480..4320, render Hz 0 or 30..360.");
             ImGui::BeginDisabled(!valid);
@@ -905,6 +907,13 @@ void DrawPatchPage(bool launcherMode)
                 std::string error; message=patch::runtime::RequestRestore(error) ? "Restore requested." : "Restore refused: "+error;
             }
             ImGui::EndDisabled();
+            patch::DisplayPlan startupPlan;
+            const bool startupEnabled=patch::LoadStartupPlan(startupPlan);
+            ImGui::TextWrapped("Successful Apply remembers that exact mode for the next launch, including when skipping the launcher. Future-plan edits alone do not change the startup mode.");
+            if (startupEnabled) {
+                ImGui::TextWrapped("Next launch: %dx%d, %s.",startupPlan.width,startupPlan.height,startupPlan.windowed ? "windowed" : "fullscreen");
+                if (ui::GhostButton("Forget startup display")) message=patch::runtime::ForgetStartupDisplay() ? "Automatic startup display disabled; future plan retained." : "Could not save startup preference.";
+            }
             if (launcherMode) ImGui::TextWrapped("Start the game manually, then open F9 to apply or restore.");
             ImGui::EndTabItem();
         }

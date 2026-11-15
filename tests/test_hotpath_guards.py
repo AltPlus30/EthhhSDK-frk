@@ -49,6 +49,43 @@ class HotPathGuards(unittest.TestCase):
         self.assertIn("frame - previous < 30", self.patch)
         self.assertIn("never validate every render", self.patch)
 
+    def test_startup_display_waits_for_hooks_and_disarms_before_request(self):
+        tick = self.runtime[self.runtime.index("void OnTickCompleted()"):self.runtime.index("void BeginNativeMovementTick()")]
+        for guard in ("hooks::D3DHooked()", "hooks::WndProcHooked()", "GetCurrentThreadId()",
+                      "GetForegroundWindow()", "!IsIconic(window)", "!input::OverlayOpen()",
+                      "g_movieUntilCounter.load()", "g_startupDisplayAttempted = true",
+                      "g_startupDisplayGate.Ready(", "SafeRead(view, nativeAspect)"):
+            self.assertIn(guard, tick)
+        self.assertLess(tick.index("DisableStartupPlan()"), tick.index("RequestDisplayPlan(saved"))
+        self.assertIn("state == ApplyState::Idle", tick)
+        self.assertIn("recovering && state == ApplyState::Failed", tick)
+        reset = self.runtime[self.runtime.index("void OnResetResult("):self.runtime.index("ApplyStatus ReadApplyStatus()")]
+        self.assertLess(reset.index("ActivateRenderSplit("), reset.index("SaveStartupPlan(status.requested)"))
+        restore = self.runtime[self.runtime.index("bool RequestRestore("):self.runtime.index("void OnResetResult(")]
+        self.assertIn("DisableStartupPlan()", restore)
+        ui = (ROOT / "src/core/ui_pages.cpp").read_text(encoding="utf-8")
+        self.assertIn("if (planChanged && valid)", ui)
+        self.assertIn("planChanged|=checkbox(\"Windowed target\"", ui)
+
+    def test_window_mode_is_set_before_synchronous_resize(self):
+        request = self.runtime[self.runtime.index("bool RequestDisplayPlan("):self.runtime.index("bool RequestRestore(")]
+        self.assertLess(request.index("ConfigureDisplay(plan.windowed"), request.index("!ResizeClient("))
+        self.assertLess(request.index("g_applyStatus.state = ApplyState::Applying"), request.index("ConfigureDisplay(plan.windowed"))
+        self.assertIn("StartRollback(error.c_str())", request[request.index("!ResizeClient("):])
+        rollback = self.runtime[self.runtime.index("bool StartRollback("):self.runtime.index("bool ExactCodeWrite(")]
+        self.assertLess(rollback.index("ConfigureDisplay("), rollback.index("SetWindowPos("))
+        reset = self.runtime[self.runtime.index("void OnResetResult("):self.runtime.index("ApplyStatus ReadApplyStatus()")]
+        self.assertIn("CapturePresentParameters(", reset)
+        self.assertIn("g_startupDisplayGate.Reset()", reset)
+        self.assertIn("g_startupDisplayRecovery.Queue(", reset)
+        self.assertIn("g_startupRecoveryPlan = status.requested", reset)
+        movie = self.runtime[self.runtime.index("void NotifyMoviePresent()"):self.runtime.index("void SetOrbitEnabled(")]
+        self.assertIn("g_startupDisplayGate.Reset()", movie)
+        self.assertIn("runtime::OnGamePresentResult(SUCCEEDED(hr))", self.hooks)
+        forget = self.runtime[self.runtime.index("bool ForgetStartupDisplay()"):self.runtime.index("void OnResetResult(")]
+        self.assertIn("g_startupDisplayRecovery.Cancel()", forget)
+        self.assertIn("g_startupDisplayAttempted = true", forget)
+
     def test_orbit_lifetime_is_independent_of_display(self):
         policy = (ROOT / "src/core/ethhhpatch_policy.h").read_text(encoding="utf-8")
         self.assertNotIn("mouseLook", policy)

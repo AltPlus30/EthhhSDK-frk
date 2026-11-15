@@ -96,6 +96,17 @@ The manager has an **EthhhPatch** page with 1080p/4K/monitor-size planning,
 windowed/fullscreen targets, measured Present/tick cadence, projection diagnostics,
 and an acknowledged in-game experimental Apply/Restore transaction. Saving a
 plan does **not** apply it; the pre-game launcher cannot change the display.
+Valid display edits now save automatically. A successful, Reset-verified Apply
+also remembers that exact resolution/windowed mode for the next game launch,
+including when skipping the launcher. Editing the future plan does not replace
+the remembered mode. Restore or **Forget startup display** disables automatic
+startup application. Failed startup attempts are disarmed until another successful
+manual Apply; safe mode still bypasses game hooks and startup application.
+Startup waits for a settled game-render interval instead of applying as soon as
+the device appears. Mode flags are set before window resizing, and one bounded
+recovery handles an early native boot override. Reset verification uses actual
+swap-chain parameters. The user reports that the corrected display/startup
+behavior works as intended after installation.
 
 The experimental runtime uses the game's mode/Reset lifecycle, verifies the
 resulting parameters, and rolls back mismatches. It enables real zero-tick render

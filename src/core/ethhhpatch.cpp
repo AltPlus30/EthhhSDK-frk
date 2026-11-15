@@ -242,4 +242,39 @@ bool SavePlan(const DisplayPlan& plan)
         plan.windowed ? "windowed" : "fullscreen", plan.width, plan.height, plan.renderHz, saved ? "saved" : "save failed");
     return saved;
 }
+
+bool LoadStartupPlan(DisplayPlan& plan)
+{
+    auto& cfg = Config::Get();
+    if (!cfg.GetBool("ethhhpatch_startup", "enabled", false)) return false;
+    DisplayPlan saved;
+    saved.width = cfg.GetInt("ethhhpatch_startup", "width", 0);
+    saved.height = cfg.GetInt("ethhhpatch_startup", "height", 0);
+    saved.renderHz = cfg.GetInt("ethhhpatch_startup", "render_hz", -1);
+    saved.windowed = cfg.GetBool("ethhhpatch_startup", "windowed", false);
+    if (!ValidPlan(saved)) return false;
+    plan = saved;
+    return true;
+}
+
+bool SaveStartupPlan(const DisplayPlan& plan)
+{
+    if (!ValidPlan(plan)) return false;
+    auto& cfg = Config::Get();
+    cfg.SetInt("ethhhpatch_startup", "width", plan.width);
+    cfg.SetInt("ethhhpatch_startup", "height", plan.height);
+    cfg.SetInt("ethhhpatch_startup", "render_hz", plan.renderHz);
+    cfg.SetBool("ethhhpatch_startup", "windowed", plan.windowed);
+    cfg.SetBool("ethhhpatch_startup", "enabled", true);
+    if (cfg.Save()) return true;
+    cfg.SetBool("ethhhpatch_startup", "enabled", false);
+    return false;
+}
+
+bool DisableStartupPlan()
+{
+    auto& cfg = Config::Get();
+    cfg.SetBool("ethhhpatch_startup", "enabled", false);
+    return cfg.Save();
+}
 } // namespace eth::patch

@@ -47,5 +47,9 @@ bool HasPreviewStatus();
 // invocation, SetWindowPos or forced Reset. The manager can save a future plan.
 DisplayPlan LoadPlan();
 bool SavePlan(const DisplayPlan& plan);
+// Separate from the editable future plan: only a verified Apply is remembered.
+bool LoadStartupPlan(DisplayPlan& plan);
+bool SaveStartupPlan(const DisplayPlan& plan);
+bool DisableStartupPlan();
 
 } // namespace eth::patch

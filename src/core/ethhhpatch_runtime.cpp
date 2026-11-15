@@ -1,4 +1,7 @@
 #include "ethhhpatch_runtime.h"
+#include "ethhhpatch.h"
+#include "ethhhpatch_display_startup.h"
+#include "hooks.h"
 #include "ethhhpatch_runtime_policy.h"
 #include "ethhhpatch_interpolation.h"
 #include "ethhhpatch_entity_reader.h"
@@ -68,6 +71,11 @@ uint32_t g_entityFrameTick = 0;
 std::atomic<bool> g_hooksReady{false};
 std::atomic<bool> g_cameraHooksReady{false};
 std::atomic<bool> g_active{false};
+bool g_startupDisplayAttempted = false;
+DisplayStartupGate g_startupDisplayGate;
+DisplayStartupRecovery g_startupDisplayRecovery;
+DisplayPlan g_startupRecoveryPlan;
+bool g_startupApplyInFlight = false, g_startupApplyIsRecovery = false;
 std::atomic<float> g_aspect{kOriginalAspect};
 std::atomic<unsigned> g_targetWidth{0}, g_targetHeight{0};
 std::atomic<int> g_targetHz{0};
@@ -176,6 +184,11 @@ bool ResizeClient(HWND window, int width, int height)
 
 bool StartRollback(const char* reason)
 {
+    g_startupApplyInFlight = false;
+    g_startupDisplayRecovery.Cancel();
+    ETH_WARN("EthhhPatch display rollback: %s", reason ? reason : "unspecified");
+    if (!DisableStartupPlan())
+        ETH_ERROR("EthhhPatch could not persist disabled startup display during rollback");
     D3DPRESENT_PARAMETERS previous{}; RECT windowRect{};
     bool haveParameters = false, haveRect = false;
     {
@@ -187,10 +200,6 @@ bool StartRollback(const char* reason)
     }
     DeactivateRenderSplit();
     HWND window = (HWND)game::GameHwnd();
-    if (haveRect && previous.Windowed && window)
-        SetWindowPos(window, nullptr, windowRect.left, windowRect.top,
-            windowRect.right - windowRect.left, windowRect.bottom - windowRect.top,
-            SWP_NOZORDER | SWP_NOACTIVATE);
     if (!haveParameters || !ConfigureDisplay(previous.Windowed != FALSE,
         (int)previous.BackBufferWidth, (int)previous.BackBufferHeight,
         (int)previous.FullScreen_RefreshRateInHz)) {
@@ -202,6 +211,12 @@ bool StartRollback(const char* reason)
         UninstallHooks();
         return false;
     }
+    // The same ordering matters when restoring a windowed baseline.
+    if (haveRect && previous.Windowed && window &&
+        !SetWindowPos(window, nullptr, windowRect.left, windowRect.top,
+            windowRect.right - windowRect.left, windowRect.bottom - windowRect.top,
+            SWP_NOZORDER | SWP_NOACTIVATE))
+        ETH_WARN("EthhhPatch rollback could not restore the previous window rectangle");
     return true;
 }
 
@@ -914,6 +929,10 @@ bool ActivateRenderSplit(float aspect, unsigned width, unsigned height, int targ
     }
     g_active.store(true);
     OnTickCompleted();
+    if (!g_active.load()) {
+        ETH_ERROR("EthhhPatch activation failed: aspect policy could not stay active");
+        return false;
+    }
     ETH_INFO("EthhhPatch render split activated internally (aspect %.6f); display application still gated", aspect);
     return true;
 }
@@ -936,6 +955,57 @@ void DeactivateRenderSplit()
 
 void OnTickCompleted()
 {
+    // Tick runs on the game/window thread. Wait for Reset observation and input
+    // hooks, not merely a device pointer discovered by the watcher thread.
+    if (!g_startupDisplayAttempted && hooks::D3DHooked() && hooks::WndProcHooked()) {
+        HWND window = (HWND)game::GameHwnd();
+        const int64_t counter = CameraCounter();
+        DWORD process = 0;
+        uintptr_t view = 0;
+        float nativeAspect = 0;
+        if (window && game::Device() && IsWindowVisible(window) && !IsIconic(window) &&
+            GetForegroundWindow() == window && !input::OverlayOpen() &&
+            GetWindowThreadProcessId(window, &process) == GetCurrentThreadId() &&
+            counter && counter >= g_movieUntilCounter.load() &&
+            SafeRead(game::A(game::off::pView), view) && view &&
+            SafeRead(view, nativeAspect) && std::isfinite(nativeAspect) && nativeAspect > 0 &&
+            g_startupDisplayGate.Ready(double(counter) / g_counterFrequency)) {
+            g_startupDisplayAttempted = true;
+            DisplayPlan saved;
+            const bool recovering = g_startupDisplayRecovery.Pending();
+            const auto state = ReadApplyStatus().state;
+            const bool eligible = state == ApplyState::Idle || (recovering && state == ApplyState::Failed);
+            if (recovering) saved = g_startupRecoveryPlan;
+            if (eligible && (recovering || LoadStartupPlan(saved))) {
+                std::string error;
+                g_startupDisplayRecovery.Take();
+                g_startupApplyIsRecovery = recovering;
+                // Disarm before trying: a crash, refusal or failed Reset must
+                // not cause an automatic retry loop on every subsequent boot.
+                if (!DisableStartupPlan()) {
+                    ETH_ERROR("EthhhPatch startup display refused: could not persist recovery state");
+                } else {
+                    g_startupApplyInFlight = true;
+                    if (!RequestDisplayPlan(saved, ReadMonitor(window).hz, error)) {
+                        g_startupApplyInFlight = false;
+                        g_startupDisplayRecovery.Cancel();
+                        {
+                            std::lock_guard<std::mutex> lock(g_applyMutex);
+                            // RequestDisplayPlan may already have started rollback.
+                            if (g_applyStatus.state == ApplyState::Idle || g_applyStatus.state == ApplyState::Failed) {
+                                g_applyStatus.state = ApplyState::Failed;
+                                g_applyStatus.detail = "saved startup display refused: " + error;
+                            }
+                        }
+                        ETH_ERROR("EthhhPatch startup display refused: %s", error.c_str());
+                    }
+                }
+            }
+        } else if (!window || GetForegroundWindow() != window || input::OverlayOpen() ||
+            (window && IsIconic(window))) {
+            g_startupDisplayGate.Reset();
+        }
+    }
     if (g_cameraHooksReady.load(std::memory_order_relaxed)) SampleOrbitCamera();
     if (!g_active.load(std::memory_order_relaxed)) return;
     uintptr_t view = 0;
@@ -968,6 +1038,13 @@ void BeginNativeMovementTick()
 }
 
 void EndNativeMovementTick() { g_headingPolicy.End(); }
+
+void OnGamePresentResult(bool success)
+{
+    if (g_startupDisplayAttempted) return;
+    const int64_t counter = CameraCounter();
+    g_startupDisplayGate.Present(counter ? double(counter) / g_counterFrequency : 0, success);
+}
 
 void BeforeGamePresent()
 {
@@ -1025,6 +1102,8 @@ bool AdjustHudProjection(uintptr_t returnAddress, const D3DMATRIX* input, D3DMAT
 
 bool RequestDisplayPlan(const DisplayPlan& plan, int monitorHz, std::string& error)
 {
+    // A manual request supersedes a queued startup recovery.
+    if (!g_startupApplyInFlight) g_startupDisplayRecovery.Cancel();
     error.clear();
     const int targetHz = TargetRenderHz(plan, monitorHz);
     if (!ValidPlan(plan) || !targetHz) { error = "invalid target or unknown monitor refresh"; return false; }
@@ -1051,14 +1130,6 @@ bool RequestDisplayPlan(const DisplayPlan& plan, int monitorHz, std::string& err
     if (plan.windowed) {
         if (targetHz != monitorHz) { error = "windowed D3D9 follows monitor refresh; explicit differing Hz refused"; return false; }
         if (!InstallHooks()) { error = "compatibility hooks could not be installed"; return false; }
-        if (!ResizeClient(window, plan.width, plan.height)) {
-            SetWindowPos(window, nullptr, previousRect.left, previousRect.top,
-                previousRect.right - previousRect.left, previousRect.bottom - previousRect.top,
-                SWP_NOZORDER | SWP_NOACTIVATE);
-            error = "could not establish exact window client size; previous window rectangle restored";
-            UninstallHooks();
-            return false;
-        }
     } else if (!ExactFullscreenModeSupported(device, plan.width, plan.height, targetHz)) {
         error = "exact fullscreen mode is not reported by this adapter"; return false;
     } else if (!InstallHooks()) { error = "compatibility hooks could not be installed"; return false; }
@@ -1072,8 +1143,24 @@ bool RequestDisplayPlan(const DisplayPlan& plan, int monitorHz, std::string& err
         g_applyStatus.targetHz = targetHz;
         g_applyStatus.detail = "waiting for the game Reset lifecycle";
     }
+    ETH_INFO("EthhhPatch display request: %dx%d %s @ %d Hz; previous %ux%u %s @ %u Hz",
+        plan.width, plan.height, plan.windowed ? "windowed" : "fullscreen", targetHz,
+        previous.BackBufferWidth, previous.BackBufferHeight, previous.Windowed ? "windowed" : "fullscreen",
+        previous.FullScreen_RefreshRateInHz);
     if (!ConfigureDisplay(plan.windowed, plan.width, plan.height, targetHz)) {
         error = "engine mode request/PostMessage failed";
+        StartRollback(error.c_str());
+        return false;
+    }
+    // ConfigureDisplay first sets the wrapper's mode flag. SetWindowPos sends
+    // WM_SIZE synchronously: resizing while that flag still says FULLSCREEN
+    // makes the engine's WM_SIZE helper copy the old fullscreen dimensions back.
+    if (plan.windowed && !ResizeClient(window, plan.width, plan.height)) {
+        RECT actual{};
+        GetClientRect(window, &actual);
+        ETH_ERROR("EthhhPatch window size mismatch: requested %dx%d, client %ldx%ld",
+            plan.width, plan.height, actual.right - actual.left, actual.bottom - actual.top);
+        error = "could not establish exact window client size after setting windowed mode";
         StartRollback(error.c_str());
         return false;
     }
@@ -1082,6 +1169,7 @@ bool RequestDisplayPlan(const DisplayPlan& plan, int monitorHz, std::string& err
 
 bool RequestRestore(std::string& error)
 {
+    g_startupDisplayRecovery.Cancel();
     error.clear();
     HWND window = (HWND)game::GameHwnd();
     DWORD process = 0;
@@ -1092,16 +1180,39 @@ bool RequestRestore(std::string& error)
         std::lock_guard<std::mutex> lock(g_applyMutex);
         if (g_applyStatus.state != ApplyState::Active) { error = "no active EthhhPatch display transaction"; return false; }
     }
+    if (!DisableStartupPlan()) { error = "could not disable saved startup display"; return false; }
     if (!StartRollback("user requested restore")) { error = "rollback request failed"; return false; }
     return true;
 }
 
+bool ForgetStartupDisplay()
+{
+    g_startupDisplayRecovery.Cancel();
+    g_startupDisplayAttempted = true;
+    return DisableStartupPlan();
+}
+
 void OnResetResult(const D3DPRESENT_PARAMETERS* parameters, HRESULT result)
 {
+    g_startupDisplayGate.Reset();
+    D3DPRESENT_PARAMETERS observed{};
+    // Verify the swap chain that actually exists, not only the pre-Reset request.
+    if (SUCCEEDED(result)) {
+        parameters = CapturePresentParameters((IDirect3DDevice9*)game::Device(), observed) ? &observed : nullptr;
+    }
     ApplyStatus status;
     {
         std::lock_guard<std::mutex> lock(g_applyMutex);
         status = g_applyStatus;
+    }
+    if (parameters) {
+        ETH_INFO("EthhhPatch Reset: state %d, hr %08lX, %ux%u %s @ %u Hz, interval %u",
+            int(status.state), (unsigned long)result, parameters->BackBufferWidth, parameters->BackBufferHeight,
+            parameters->Windowed ? "windowed" : "fullscreen", parameters->FullScreen_RefreshRateInHz,
+            parameters->PresentationInterval);
+    } else {
+        ETH_WARN("EthhhPatch Reset: state %d, hr %08lX, resulting parameters unavailable",
+            int(status.state), (unsigned long)result);
     }
     if (status.state == ApplyState::Applying) {
         if (SUCCEEDED(result) && parameters && AppliedModeMatches(status.requested, status.targetHz,
@@ -1109,9 +1220,19 @@ void OnResetResult(const D3DPRESENT_PARAMETERS* parameters, HRESULT result)
             parameters->FullScreen_RefreshRateInHz) &&
             ActivateRenderSplit((float)Aspect(status.requested.width, status.requested.height),
                 parameters->BackBufferWidth, parameters->BackBufferHeight, status.targetHz)) {
+            const bool remembered = SaveStartupPlan(status.requested);
+            if (g_startupApplyInFlight && !g_startupApplyIsRecovery) {
+                const int64_t counter = CameraCounter();
+                g_startupDisplayRecovery.Arm(counter ? double(counter) / g_counterFrequency : 0);
+            }
+            g_startupApplyInFlight = false;
             std::lock_guard<std::mutex> lock(g_applyMutex);
             g_applyStatus.state = ApplyState::Active;
             g_applyStatus.detail = "display Reset matched; render split/culling/HUD timing active";
+            g_applyStatus.detail += remembered ? "; remembered for next launch" : "; WARNING: could not save startup display";
+            ETH_INFO("EthhhPatch display verified: %dx%d %s; aspect %.6f; startup %s",
+                status.requested.width, status.requested.height, status.requested.windowed ? "windowed" : "fullscreen",
+                g_aspect.load(), remembered ? "remembered" : "save failed");
             return;
         }
         StartRollback(FAILED(result) ? "display Reset failed" : "Reset result did not exactly match the request");
@@ -1135,6 +1256,15 @@ void OnResetResult(const D3DPRESENT_PARAMETERS* parameters, HRESULT result)
         if (!AppliedModeMatches(status.requested, status.targetHz, parameters->BackBufferWidth,
             parameters->BackBufferHeight, parameters->Windowed != FALSE,
             parameters->FullScreen_RefreshRateInHz)) {
+            ETH_WARN("EthhhPatch active display replaced by a later game Reset; disabling compatibility policies");
+            const int64_t counter = CameraCounter();
+            if (g_startupDisplayRecovery.Queue(counter ? double(counter) / g_counterFrequency : 0)) {
+                g_startupRecoveryPlan = status.requested;
+                g_startupDisplayAttempted = false;
+                ETH_WARN("EthhhPatch late boot mode override: queued one recovery after game presents settle");
+            }
+            if (!DisableStartupPlan())
+                ETH_ERROR("EthhhPatch could not forget startup display after mode mismatch");
             DeactivateRenderSplit();
             {
                 std::lock_guard<std::mutex> lock(g_applyMutex);
@@ -1164,6 +1294,7 @@ void SetExternalCameraOwned(bool owned)
 
 void NotifyMoviePresent()
 {
+    g_startupDisplayGate.Reset();
     const int64_t counter = CameraCounter();
     if (counter) g_movieUntilCounter.store(counter + g_counterFrequency / 2);
     if (g_cameraHooksReady.load() && !g_externalCameraOwned.load()) {
