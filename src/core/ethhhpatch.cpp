@@ -226,7 +226,6 @@ DisplayPlan LoadPlan()
     plan.height = cfg.GetInt("ethhhpatch", "height", 1080);
     plan.renderHz = cfg.GetInt("ethhhpatch", "render_hz", 0);
     plan.windowed = cfg.GetBool("ethhhpatch", "windowed", false);
-    plan.mouseLook = cfg.GetBool("ethhhpatch", "mouse_look", true);
     return ValidPlan(plan) ? plan : DisplayPlan{};
 }
 
@@ -238,7 +237,6 @@ bool SavePlan(const DisplayPlan& plan)
     cfg.SetInt("ethhhpatch", "height", plan.height);
     cfg.SetInt("ethhhpatch", "render_hz", plan.renderHz);
     cfg.SetBool("ethhhpatch", "windowed", plan.windowed);
-    cfg.SetBool("ethhhpatch", "mouse_look", plan.mouseLook);
     const bool saved = cfg.Save();
     ETH_INFO("EthhhPatch: future %s display plan %dx%d @ %d Hz (%s); NOT applied, simulation untouched",
         plan.windowed ? "windowed" : "fullscreen", plan.width, plan.height, plan.renderHz, saved ? "saved" : "save failed");

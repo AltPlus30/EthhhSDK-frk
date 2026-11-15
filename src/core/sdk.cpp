@@ -11,6 +11,7 @@
 #include "log.h"
 #include "config.h"
 #include "pestcontrol.h"
+#include "ethhhpatch_runtime.h"
 #include "mods.h"
 #include "hooks.h"
 #include "launcher.h"
@@ -89,7 +90,8 @@ ETH_CAPI(void, EthhhSDK_EntryGate, (void))
         if (!hooks::Init()) {
             ETH_ERROR("MinHook initialization failed; game hooks are unavailable");
         } else {
-            hooks::InstallTickHook();
+            if (hooks::InstallTickHook())
+                patch::runtime::InitializeCamera();
         }
     }
 

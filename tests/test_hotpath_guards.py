@@ -49,6 +49,34 @@ class HotPathGuards(unittest.TestCase):
         self.assertIn("frame - previous < 30", self.patch)
         self.assertIn("never validate every render", self.patch)
 
+    def test_orbit_lifetime_is_independent_of_display(self):
+        policy = (ROOT / "src/core/ethhhpatch_policy.h").read_text(encoding="utf-8")
+        self.assertNotIn("mouseLook", policy)
+        self.assertNotIn('"mouse_look"', self.patch)
+        for start, end in [
+            ("void ApplyRenderMouseLook()", "float CurrentRenderFraction()"),
+            ("void BeginNativeMovementTick()", "void EndNativeMovementTick()"),
+        ]:
+            body = self.runtime[self.runtime.index(start):self.runtime.index(end)]
+            self.assertIn("g_cameraHooksReady.load", body)
+            self.assertNotIn("g_active.load", body)
+        deactivate = self.runtime[self.runtime.index("void DeactivateRenderSplit()"):self.runtime.index("void OnTickCompleted()")]
+        self.assertNotIn("g_mouseLookEnabled = false", deactivate)
+        self.assertNotIn("g_orbit.Reset()", deactivate)
+        uninstall = self.runtime[self.runtime.index("void UninstallHooks()\n{"):self.runtime.index("bool ActivateRenderSplit(")]
+        for target in ("kBuiltinFieldGetter", "kViewRender", "kAppRender"):
+            self.assertNotIn(target, uninstall)
+        tick = self.runtime[self.runtime.index("void OnTickCompleted()"):self.runtime.index("void BeginNativeMovementTick()")]
+        self.assertLess(tick.index("SampleOrbitCamera()"), tick.index("if (!g_active.load"))
+
+    def test_skip_launcher_uses_existing_boot_setting(self):
+        ui = (ROOT / "src/core/ui_pages.cpp").read_text(encoding="utf-8")
+        sdk = (ROOT / "src/core/sdk.cpp").read_text(encoding="utf-8")
+        self.assertIn('bool skipLauncher = !cfg.GetBool("core", "launcher", true)', ui)
+        self.assertIn('cfg.SetBool("core", "launcher", !skipLauncher)', ui)
+        self.assertIn('if (cfg.GetBool("core", "launcher", true))', sdk)
+        self.assertIn("patch::runtime::InitializeCamera()", sdk)
+
     def test_hl_camera_defaults_and_gui_cache(self):
         self.assertIn('GetFloat("eye_height", 69.0f)', self.hl)
         self.assertIn('GetFloat("forward_offset", 24.0f)', self.hl)

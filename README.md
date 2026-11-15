@@ -31,6 +31,9 @@ be installed into the game directory.
 ## Controls and mods
 
 - F9: manager; pause-on-overlay and input handling are configurable.
+- Settings > Startup > **Skip launcher and start the game directly** skips the
+  pre-game manager on subsequent boots. Re-enable it from the in-game Settings,
+  or set `[core] launcher=true` in `EthhhSDK.ini`.
 - `mods/trainer/mod.lua`: Lua trainer and inspection example.
 - `mods/HalfLifeMovement/src`: C# movement/camera showcase. F2 activates, F3
   stops, WASD moves, V jumps. Loading or re-enabling it always starts in standby.
@@ -110,6 +113,9 @@ This feature is staged and offline-tested, not yet live-accepted.
 
 Outside HL mode, the optional third-person mouse orbit updates the actual View
 pose every render and restores native camera/View bytes after the frame. It
+starts from its saved setting independently of display Apply/Restore, including
+at the game's native resolution. Display plans no longer contain mouse settings.
+Normal-mode FOV and animation interpolation still require the display patch. It
 yields to movies, HL ownership and suspected scripted shots. After a suspected
 shot, use F9 **Resume orbit after scripted camera**; cutscene detection is still
 conservative, not a verified native cutscene flag. Unchecking orbit retains the

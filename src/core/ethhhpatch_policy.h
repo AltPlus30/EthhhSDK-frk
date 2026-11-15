@@ -12,7 +12,6 @@ struct DisplayPlan {
     int width = 1920, height = 1080;
     int renderHz = 0; // 0 means monitor refresh, not unlimited simulation.
     bool windowed = false;
-    bool mouseLook = true;
 };
 
 inline bool ValidPlan(const DisplayPlan& p)

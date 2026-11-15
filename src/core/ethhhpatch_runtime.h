@@ -6,8 +6,9 @@
 
 namespace eth::patch::runtime {
 
-// Hooks are installed lazily for the acknowledged Apply/Restore transaction.
-bool InstallHooks();
+// Display hooks are lazy; camera hooks have an independent lifetime.
+bool InstallHooks(bool cameraOnly = false);
+void InitializeCamera();
 void Shutdown();
 bool HooksReady();
 bool Active();

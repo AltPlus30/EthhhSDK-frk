@@ -171,8 +171,13 @@ The active policies also:
 - disable compatibility changes if a later successful Reset no longer matches
   the verified active mode.
 
-Compatibility hooks for culling, HUD pulse, movie fit, camera, scoped movement heading and entity submissions are installed lazily
+Display hooks for culling, HUD pulse, movie fit and entity submissions are installed lazily
 only when an Apply transaction begins and are removed after restore/failure.
+Mouse orbit and scoped movement heading have an independent hook lifetime,
+initialized from the saved `ethhhpatch.mouse_look` setting after the tick hook is
+installed, or lazily when orbit is enabled in-game. Shared App/View render scopes
+are reused by either hook group and retained until SDK shutdown. Failed installation
+removes only hooks created by that attempt; display rollback does not remove camera hooks.
 Inactive EthhhPatch therefore adds no pass-through detour to the hot sphere-cull
 path. Projection-matrix validation is sampled once per 30 engine frames rather
 than performing protected memory validation on every render.
@@ -181,6 +186,9 @@ than performing protected memory validation on every render.
 
 The F9 **EthhhPatch > Camera > Third-person mouse orbit outside HL mode** option maintains an orbit
 around the exact Ninja, initialized from the native camera's distance and angle.
+It works without applying a display plan, including at native resolution.
+Applying/restoring resolution or windowed mode does not toggle orbit or overwrite
+its saved setting. Normal-mode FOV and entity interpolation remain display-gated.
 The target is the Ninja position plus an estimated 1.3 game-unit height. Target
 translation interpolates the last two completed ticks with one tick of latency;
 raw mouse orientation updates every render. The pitch is bounded and yaw wraps.

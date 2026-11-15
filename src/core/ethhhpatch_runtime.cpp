@@ -66,6 +66,7 @@ EntityTelemetry g_entityTelemetry;
 float g_entityFrameAlpha = 1;
 uint32_t g_entityFrameTick = 0;
 std::atomic<bool> g_hooksReady{false};
+std::atomic<bool> g_cameraHooksReady{false};
 std::atomic<bool> g_active{false};
 std::atomic<float> g_aspect{kOriginalAspect};
 std::atomic<unsigned> g_targetWidth{0}, g_targetHeight{0};
@@ -415,7 +416,7 @@ void SampleOrbitCamera()
 
 void ApplyRenderMouseLook()
 {
-    if (!g_inGameRender || !g_active.load(std::memory_order_relaxed) || !g_mouseLookEnabled ||
+    if (!g_inGameRender || !g_cameraHooksReady.load(std::memory_order_relaxed) || !g_mouseLookEnabled ||
         g_cameraRestoreFailed || g_externalCameraOwned.load()) return;
     const int64_t counter = CameraCounter();
     if (!counter || counter < g_movieUntilCounter.load() || g_orbit.state != OrbitState::Following) return;
@@ -547,7 +548,7 @@ uint32_t __fastcall BuiltinFieldScoped(void* self, void*, void* output, void* ot
     if (field != 0x6A || caller != game::A(kBuiltinFieldReturn) || uintptr_t(self) != g_orbitPlayer ||
         other != self || !g_headingPolicy.Eligible()) return result;
     const bool focused = input::Window() && GetForegroundWindow() == input::Window();
-    if (!g_active.load() || !g_mouseLookEnabled || g_orbit.state != OrbitState::Following ||
+    if (!g_cameraHooksReady.load() || !g_mouseLookEnabled || g_orbit.state != OrbitState::Following ||
         !g_orbit.initialized || game::PlayerTracker::Get().Addr() != g_orbitPlayer ||
         !focused || input::OverlayOpen() || input::KeyDown(VK_F9) ||
         input::KeyDown(VK_CONTROL) || g_externalCameraOwned.load() || input::NativeMovementKeysOwned() ||
@@ -800,9 +801,9 @@ void __fastcall AppRenderDetour(void* self, void*)
 }
 } // namespace
 
-bool InstallHooks()
+bool InstallHooks(bool cameraOnly)
 {
-    if (g_hooksReady.load()) return true;
+    if (cameraOnly ? g_cameraHooksReady.load() : g_hooksReady.load()) return true;
     char exe[MAX_PATH]{};
     const DWORD length = GetModuleFileNameA(nullptr, exe, MAX_PATH);
     if (!length || length >= MAX_PATH || Sha256FileHex(exe) !=
@@ -816,10 +817,10 @@ bool InstallHooks()
     const uint8_t primaryTail[] = {0xE9,0x61,0x54,0xFF,0xFF}; // 0x449E2A -> 0x43F290
     const uint8_t fieldEntry[] = {0x55,0x8B,0xEC,0x83,0xE4,0xF0,0x83,0xEC,0x48};
     const uint8_t fieldCall[] = {0xE8,0x96,0xC3,0xFF,0xFF}; // selector 0x10, thiscall ret 0xC
-    if (!SafeReadBytes(game::A(kBuiltinFieldGetter), current, sizeof(fieldEntry)) ||
+    if (cameraOnly && (!SafeReadBytes(game::A(kBuiltinFieldGetter), current, sizeof(fieldEntry)) ||
         memcmp(current, fieldEntry, sizeof(fieldEntry)) ||
         !SafeReadBytes(game::A(kBuiltinFieldReturn - 5), current, sizeof(fieldCall)) ||
-        memcmp(current, fieldCall, sizeof(fieldCall))) {
+        memcmp(current, fieldCall, sizeof(fieldCall)))) {
         ETH_ERROR("EthhhPatch refused heading hook: built-in field contract changed"); return false;
     }
     if (!SafeReadBytes(game::A(kPrimaryViewReturn - 5), current, sizeof(primaryCall)) ||
@@ -828,8 +829,8 @@ bool InstallHooks()
         memcmp(current, primaryTail, sizeof(primaryTail))) {
         ETH_ERROR("EthhhPatch refused camera hooks: primary render path changed"); return false;
     }
-    if (!SafeReadBytes(game::A(kEntitySubmit),current,sizeof(submitBytes)) || memcmp(current,submitBytes,sizeof(submitBytes)) ||
-        !SafeReadBytes(game::A(kNodeSubmit),current,sizeof(nodeBytes)) || memcmp(current,nodeBytes,sizeof(nodeBytes))) {
+    if (!cameraOnly && (!SafeReadBytes(game::A(kEntitySubmit),current,sizeof(submitBytes)) || memcmp(current,submitBytes,sizeof(submitBytes)) ||
+        !SafeReadBytes(game::A(kNodeSubmit),current,sizeof(nodeBytes)) || memcmp(current,nodeBytes,sizeof(nodeBytes)))) {
         ETH_ERROR("EthhhPatch refused entity hooks: render entry bytes changed"); return false;
     }
     struct Hook { uintptr_t va; void* detour; void** original; };
@@ -842,28 +843,33 @@ bool InstallHooks()
         {kEntitySubmit,(void*)&EntitySubmitDetour,(void**)&g_entitySubmitOrig},
         {kNodeSubmit,(void*)&NodeSubmitDetour,(void**)&g_nodeSubmitOrig},
         {kBuiltinFieldGetter,(void*)&BuiltinFieldDetour,(void**)&g_builtinFieldOrig}};
-    size_t created = 0;
+    const Hook* created[8]{};
+    size_t createdCount = 0;
     bool enabled = true;
     for (const auto& hook : hooks) {
+        const bool shared = hook.va == kViewRender || hook.va == kAppRender;
+        const bool camera = hook.va == kBuiltinFieldGetter;
+        if ((!shared && camera != cameraOnly) || *hook.original) continue;
         const MH_STATUS status = MH_CreateHook((void*)game::A(hook.va),hook.detour,hook.original);
         if (status != MH_OK) {
             ETH_ERROR("EthhhPatch hook %08X failed: %s",unsigned(hook.va),MH_StatusToString(status));
             enabled = false; break;
         }
-        ++created;
+        created[createdCount++] = &hook;
     }
-    if (enabled) for (const auto& hook : hooks)
-        if (MH_QueueEnableHook((void*)game::A(hook.va)) != MH_OK) { enabled = false; break; }
+    if (enabled) for (size_t i = 0; i < createdCount; ++i)
+        if (MH_QueueEnableHook((void*)game::A(created[i]->va)) != MH_OK) { enabled = false; break; }
     if (enabled) enabled = MH_ApplyQueued() == MH_OK;
     if (!enabled) {
-        for (size_t i=0;i<created;++i) {
-            MH_DisableHook((void*)game::A(hooks[i].va)); MH_RemoveHook((void*)game::A(hooks[i].va));
-            *hooks[i].original = nullptr;
+        for (size_t i=0;i<createdCount;++i) {
+            MH_DisableHook((void*)game::A(created[i]->va)); MH_RemoveHook((void*)game::A(created[i]->va));
+            *created[i]->original = nullptr;
         }
         return false;
     }
-    g_hooksReady.store(true);
-    ETH_INFO("EthhhPatch compatibility hooks ready (culling/HUD/movie/scoped orbit/heading/entity poses); render split inactive");
+    if (cameraOnly) g_cameraHooksReady.store(true);
+    else g_hooksReady.store(true);
+    ETH_INFO("EthhhPatch %s hooks ready; shared render scope retained independently", cameraOnly ? "camera/heading" : "display");
     return true;
 }
 
@@ -872,15 +878,13 @@ void UninstallHooks()
     if (!g_hooksReady.exchange(false)) return;
     DeactivateRenderSplit();
     void* targets[] = { (void*)game::A(kSphereCull), (void*)game::A(kHudPulse), (void*)game::A(kMovieDraw),
-        (void*)game::A(kViewRender), (void*)game::A(kAppRender), (void*)game::A(kEntitySubmit), (void*)game::A(kNodeSubmit),
-        (void*)game::A(kBuiltinFieldGetter) };
+        (void*)game::A(kEntitySubmit), (void*)game::A(kNodeSubmit) };
     for (void* target : targets) {
         MH_DisableHook(target);
         MH_RemoveHook(target);
     }
-    g_sphereCullOrig = nullptr; g_hudPulseOrig = nullptr; g_movieDrawOrig = nullptr; g_viewRenderOrig=nullptr; g_appRenderOrig=nullptr;
+    g_sphereCullOrig = nullptr; g_hudPulseOrig = nullptr; g_movieDrawOrig = nullptr;
     g_entitySubmitOrig = nullptr; g_nodeSubmitOrig = nullptr;
-    g_builtinFieldOrig = nullptr;
     ETH_INFO("EthhhPatch compatibility hooks removed");
 }
 
@@ -895,7 +899,6 @@ bool ActivateRenderSplit(float aspect, unsigned width, unsigned height, int targ
     g_targetHz.store(targetHz);
     g_nextPresentCounter = 0;
     g_pulseClock = {};
-    g_orbit.Reset(); g_cameraRestoreFailed = false; g_lastCameraTraceCounter = 0;
     g_headingPolicy.Reset(); g_headingCameraOwner = {}; g_headingRouted = g_headingRefused = 0;
     LoadOrbitTuning();
     g_entityPoses.Reset();
@@ -924,8 +927,6 @@ void DeactivateRenderSplit()
     g_targetWidth.store(0); g_targetHeight.store(0);
     g_targetHz.store(0); g_nextPresentCounter = 0;
     RestoreRenderCamera(); ReleaseOrbitCapture();
-    g_mouseLookEnabled = false;
-    g_orbit.Reset(); g_orbitPlayer = g_orbitClass = g_orbitCamera = g_orbitView = 0; g_orbitHandle = 0;
     g_headingPolicy.Reset(); g_headingCameraOwner = {};
     g_pulseClock = {};
     g_entityPoses.Reset(); g_submittedPose = nullptr;
@@ -935,6 +936,7 @@ void DeactivateRenderSplit()
 
 void OnTickCompleted()
 {
+    if (g_cameraHooksReady.load(std::memory_order_relaxed)) SampleOrbitCamera();
     if (!g_active.load(std::memory_order_relaxed)) return;
     uintptr_t view = 0;
     const float aspect = g_aspect.load(std::memory_order_relaxed);
@@ -943,13 +945,13 @@ void OnTickCompleted()
         DeactivateRenderSplit();
         return;
     }
-    SampleOrbitCamera();
+    if (!g_cameraHooksReady.load(std::memory_order_relaxed)) SampleOrbitCamera();
     SampleEntityPoses();
 }
 
 void BeginNativeMovementTick()
 {
-    if (!g_active.load(std::memory_order_relaxed)) { g_headingPolicy.Invalidate(); return; }
+    if (!g_cameraHooksReady.load(std::memory_order_relaxed)) { g_headingPolicy.Invalidate(); return; }
     const int64_t counter = CameraCounter();
     movement::Gates gates;
     gates.active = g_mouseLookEnabled;
@@ -985,7 +987,17 @@ void BeforeGamePresent()
     g_nextPresentCounter += period;
 }
 
-void Shutdown() { DeactivateRenderSplit(); UninstallHooks(); }
+void Shutdown()
+{
+    DeactivateRenderSplit(); UninstallHooks();
+    RestoreRenderCamera(); ReleaseOrbitCapture();
+    g_mouseLookEnabled = false;
+    g_cameraHooksReady.store(false);
+    void* targets[] = { (void*)game::A(kViewRender), (void*)game::A(kAppRender),
+        (void*)game::A(kBuiltinFieldGetter) };
+    for (void* target : targets) { MH_DisableHook(target); MH_RemoveHook(target); }
+    g_viewRenderOrig = nullptr; g_appRenderOrig = nullptr; g_builtinFieldOrig = nullptr;
+}
 bool HooksReady() { return g_hooksReady.load(); }
 bool Active() { return g_active.load(); }
 
@@ -1059,7 +1071,6 @@ bool RequestDisplayPlan(const DisplayPlan& plan, int monitorHz, std::string& err
         g_applyStatus.requested = plan;
         g_applyStatus.targetHz = targetHz;
         g_applyStatus.detail = "waiting for the game Reset lifecycle";
-        g_mouseLookEnabled = plan.mouseLook;
     }
     if (!ConfigureDisplay(plan.windowed, plan.width, plan.height, targetHz)) {
         error = "engine mode request/PostMessage failed";
@@ -1155,18 +1166,28 @@ void NotifyMoviePresent()
 {
     const int64_t counter = CameraCounter();
     if (counter) g_movieUntilCounter.store(counter + g_counterFrequency / 2);
-    if (g_active.load() && !g_externalCameraOwned.load()) {
+    if (g_cameraHooksReady.load() && !g_externalCameraOwned.load()) {
         RestoreRenderCamera(); g_orbit.Suspend(OrbitState::Movie); ReleaseOrbitCapture();
     }
 }
 
 void SetOrbitEnabled(bool enabled)
 {
+    if (enabled && !InstallHooks(true)) {
+        ETH_ERROR("EthhhPatch orbit refused: camera hooks unavailable");
+        enabled = false;
+    }
     g_mouseLookEnabled = enabled;
     RestoreRenderCamera(); ReleaseOrbitCapture();
     g_orbit.Reset(); g_lastCameraTraceCounter = 0;
     if (enabled) LoadOrbitTuning();
     PublishOrbitTelemetry();
+}
+
+void InitializeCamera()
+{
+    LoadOrbitTuning();
+    SetOrbitEnabled(Config::Get().GetBool("ethhhpatch", "mouse_look", true));
 }
 
 NormalFovTuning ReadNormalFovTuning() { return {g_normalFovEnabled.load(), g_normalFovDegrees.load()}; }

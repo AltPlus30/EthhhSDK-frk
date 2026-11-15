@@ -252,6 +252,16 @@ void DrawSettingsPage()
     ImGui::BeginChild("##settings2", ImVec2(0, 0), false);
     ImGui::PushTextWrapPos(0);
 
+    SectionHeader("STARTUP", "Changes take effect on the next game launch.");
+    bool skipLauncher = !cfg.GetBool("core", "launcher", true);
+    if (ui::ToggleSwitch("##skip_launcher", &skipLauncher)) {
+        cfg.SetBool("core", "launcher", !skipLauncher);
+        changed = true;
+    }
+    ImGui::SameLine(); ImGui::TextWrapped("Skip launcher and start the game directly");
+    ImGui::TextWrapped("The in-game manager remains available. Disable this option here to restore the launcher.");
+    Divider();
+
     SectionHeader("LIQUID GLASS", "Global appearance for both managers and mod interfaces. Changes apply immediately.");
     bool themeChanged=false;
     int appearance=std::clamp(cfg.GetInt("theme","appearance",0),0,1);
@@ -308,23 +318,24 @@ void DrawSettingsPage()
     }
 
     int detail = cfg.GetInt("core", "watermark_detail", 1);
-    ImGui::SetNextItemWidth(180.0f * ui::Scale());
+    ImGui::TextWrapped("Watermark detail");
+    ImGui::SetNextItemWidth(std::min(180.0f * ui::Scale(), ImGui::GetContentRegionAvail().x));
     const char* detailNames[] = { "Minimal", "Standard", "Detailed" };
-    if (ImGui::Combo("Watermark detail", &detail, detailNames, 3)) {
+    if (ImGui::Combo("##watermark_detail", &detail, detailNames, 3)) {
         cfg.SetInt("core", "watermark_detail", detail);
         changed = true;
     }
 
     static const char* positions[] = { "Top left", "Top right", "Bottom left", "Bottom right" };
     int pos = cfg.GetInt("core", "watermark_pos", 0);
-    ImGui::SetNextItemWidth(180.0f * ui::Scale());
-    if (ImGui::Combo("Watermark position", &pos, positions, 4)) {
+    ImGui::TextWrapped("Watermark position");
+    ImGui::SetNextItemWidth(std::min(180.0f * ui::Scale(), ImGui::GetContentRegionAvail().x));
+    if (ImGui::Combo("##watermark_position", &pos, positions, 4)) {
         cfg.SetInt("core", "watermark_pos", pos);
         changed = true;
     }
 
     Divider();
-
     SectionHeader("GAME", "Fixed-tick engine helpers");
     float ts = game::TimeScale();
     if (ImGui::SliderFloat("Time scale", &ts, 0.0f, 3.0f, "%.2fx")) {
@@ -382,8 +393,9 @@ void DrawSettingsPage()
 
     ImGui::Dummy(ImVec2(0, 8 * ui::Scale()));
     float fontScale = cfg.GetFloat("core", "font_scale", 1.0f);
+    ImGui::TextWrapped("Interface scale");
     ImGui::SetNextItemWidth(180 * ui::Scale());
-    if (ImGui::SliderFloat("Interface scale", &fontScale, 0.8f, 1.6f, "%.2fx")) {
+    if (ImGui::SliderFloat("##interface_scale", &fontScale, 0.8f, 1.6f, "%.2fx")) {
         cfg.SetFloat("core", "font_scale", fontScale);
         changed = true;
     }
@@ -410,7 +422,7 @@ void DrawConsolePage()
     static const char* filters[] = { "All", "Info", "Warn", "Error", "Debug" };
     ImGui::SetNextItemWidth(140 * ui::Scale());
     ImGui::Combo("Filter", &g_logFilter, filters, 5);
-    ImGui::SameLine();
+    // Keep the action row separate from the filter at narrow/high-DPI sizes.
     ui::Checkbox("Auto-scroll", &g_logAutoScroll);
     ImGui::SameLine();
     if (ui::GhostButton("Clear", ImVec2(80 * ui::Scale(), 0))) {
@@ -920,10 +932,12 @@ void DrawPatchPage(bool launcherMode)
             ImGui::TextWrapped("Hold Mouse 2 for native sword hover. Keyboard/gamepad attacks still work; release mouse buttons after closing F9 or returning to the game.");
             Divider(4);
             SectionHeader("FREE-LOOK ORBIT","Move the mouse to look around Ninja. Scroll the wheel to zoom.");
-            if (checkbox("Third-person mouse orbit outside HL mode",&plan.mouseLook)) {
-                patch::SavePlan(plan);
-                if (!launcherMode && patch::runtime::Active()) patch::runtime::SetOrbitEnabled(plan.mouseLook);
+            bool mouseLook=cfg.GetBool("ethhhpatch","mouse_look",true);
+            if (checkbox("Third-person mouse orbit outside HL mode",&mouseLook)) {
+                cfg.SetBool("ethhhpatch","mouse_look",mouseLook); cfg.Save();
+                if (!launcherMode) patch::runtime::SetOrbitEnabled(mouseLook);
             }
+            ImGui::TextWrapped("Independent of the display patch: works at the native resolution and survives display restore.");
             float sensitivity=cfg.GetFloat("ethhhpatch","orbit_sensitivity",1);
             bool invert=cfg.GetBool("ethhhpatch","orbit_invert_y",false);
             bool changed=false;
@@ -945,7 +959,7 @@ void DrawPatchPage(bool launcherMode)
             ImGui::BeginDisabled(!orbit.following);
             if (slider("Orbit distance",&distance,2.5f,15,"%.1f units")) patch::runtime::SetOrbitDistance(distance);
             ImGui::EndDisabled();
-            ImGui::BeginDisabled(launcherMode || !patch::runtime::Active() || !plan.mouseLook);
+            ImGui::BeginDisabled(launcherMode || !mouseLook);
             if (ui::GhostButton(compact ? "Resume orbit" : "Resume orbit after scripted camera")) patch::runtime::ResumeOrbit();
             ImGui::EndDisabled();
             ImGui::TextWrapped("Camera cuts and off-target pans yield to native framing with a temporary hold. Stable gameplay reacquires automatically. HL and movies always have priority.");
