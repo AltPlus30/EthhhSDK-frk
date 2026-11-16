@@ -6,7 +6,7 @@
 //    * F9 toggle (key configurable)
 //    * pause + camera freeze while the menu is open
 //    * custom-chrome manager window (sidebar + pages)
-//    * always-on EthhhSDK watermark
+//    * optional EthhhSDK status/FPS notification
 //    * WndProc routing so the game ignores input while the menu is open
 // ===========================================================================
 #include "overlay.h"
@@ -22,7 +22,6 @@
 
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx9.h"
-#include "liquid_glass.h"
 #include "ui_motion_policy.h"
 #include "ui_audio.h"
 
@@ -58,7 +57,6 @@ bool InitBackends(IDirect3DDevice9* device, HWND hwnd)
         return true;
 
     if (g_backendReady) {
-        ui::ShutdownGlass();
         ImGui_ImplDX9_Shutdown();
         ImGui_ImplWin32_Shutdown();
         g_backendReady = false;
@@ -93,7 +91,6 @@ bool InitBackends(IDirect3DDevice9* device, HWND hwnd)
 
     g_hwnd = hwnd;
     g_device = device;
-    ui::InitGlass(device);
     g_backendReady = true;
     ETH_INFO("overlay: ImGui backends ready (hwnd=%p device=%p scale %.2f)", hwnd, device, scale);
     return true;
@@ -269,7 +266,6 @@ void RenderFrame(IDirect3DDevice9* device, bool moviePath)
             io.AddMousePosEvent(float(point.x),float(point.y));
     }
     ImGui::NewFrame();
-    ui::BeginGlassFrame();
 
     if (io.DisplaySize.x < 16.0f || io.DisplaySize.y < 16.0f) {
         ImGui::EndFrame();
@@ -284,7 +280,7 @@ void RenderFrame(IDirect3DDevice9* device, bool moviePath)
     DrawMenuCursor(g_visible,focused,ui::Scale());
 
     ImGui::Render();
-    ui::RenderGlassDrawData(device,ImGui::GetDrawData());
+    ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
 
     if (g_visible && focused)
         SetCursor(nullptr);
@@ -310,11 +306,9 @@ void OnDeviceReset(bool before, IDirect3DDevice9* device)
     if (!g_backendReady || device == nullptr)
         return;
     if (before) {
-        ui::InvalidateGlass();
         ImGui_ImplDX9_InvalidateDeviceObjects();
     } else {
         ImGui_ImplDX9_CreateDeviceObjects();
-        ui::RecreateGlass();
     }
 }
 
@@ -385,7 +379,6 @@ void Shutdown()
         SetVisible(false);
 
     if (g_backendReady) {
-        ui::ShutdownGlass();
         ImGui_ImplDX9_Shutdown();
         ImGui_ImplWin32_Shutdown();
         g_backendReady = false;

@@ -20,7 +20,6 @@
 
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx9.h"
-#include "liquid_glass.h"
 #include "ui_audio.h"
 #include "ui_motion_policy.h"
 
@@ -180,10 +179,7 @@ int Run()
     ImGui::GetIO().IniFilename = nullptr;
 
     ImGui_ImplWin32_Init(g_hwnd);
-    ImGui_ImplWin32_EnableAlphaCompositing(g_hwnd);
     ImGui_ImplDX9_Init(device);
-    ui::InitGlass(device);
-    Glass::g->SetTransparentTarget(true);
     ui::motion::Transition appearance;appearance.Target(true);
 
     ShowWindow(g_hwnd, SW_SHOW);
@@ -204,16 +200,15 @@ int Run()
         const HRESULT cooperative=device->TestCooperativeLevel();
         if(cooperative==D3DERR_DEVICELOST) {Sleep(30);continue;}
         if(cooperative==D3DERR_DEVICENOTRESET) {
-            ui::InvalidateGlass(); ImGui_ImplDX9_InvalidateDeviceObjects();
+            ImGui_ImplDX9_InvalidateDeviceObjects();
             if(FAILED(device->Reset(&pp))) {Sleep(30);continue;}
-            ImGui_ImplDX9_CreateDeviceObjects();ui::RecreateGlass();
+            ImGui_ImplDX9_CreateDeviceObjects();
         } else if(FAILED(cooperative)) {Sleep(30);continue;}
         if(IsIconic(g_hwnd)) {Sleep(30);continue;}
 
         ImGui_ImplDX9_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
-        ui::BeginGlassFrame();
 
         ImGuiIO& io = ImGui::GetIO();
         appearance.Advance(io.DeltaTime,Config::Get().GetBool("theme","reduce_motion",false));
@@ -232,7 +227,7 @@ int Run()
             ui::pages::DrawManagerLayout(true, &startRequested, &exitRequested);
 
             // Drag the borderless window by its custom header.
-            float headerH = 64.0f * ui::Scale();
+            float headerH = ImGui::GetFrameHeight();
             ImVec2 mouse = io.MousePos;
             bool onHeader = mouse.y >= 0 && mouse.y < headerH && mouse.x >= 0 && mouse.x < io.DisplaySize.x;
             if (ImGui::IsMouseClicked(0) && onHeader && mouse.x < io.DisplaySize.x - 62.0f * ui::Scale()) {
@@ -261,7 +256,7 @@ int Run()
 
         if(SUCCEEDED(device->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(0, 0, 0, 0), 1.0f, 0)) &&
            SUCCEEDED(device->BeginScene())) {
-            ui::RenderGlassDrawData(device,ImGui::GetDrawData());
+            ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
             device->EndScene();
             device->Present(nullptr, nullptr, nullptr, nullptr);
         } else Sleep(30);
@@ -269,7 +264,6 @@ int Run()
 
     ETH_INFO("launcher: %s", g_started ? "start requested" : "exit requested");
 
-    ui::ShutdownGlass();
     ImGui_ImplDX9_Shutdown();
     ImGui_ImplWin32_Shutdown();
 

@@ -11,7 +11,6 @@
 #include "ethhhpatch.h"
 #include "ethhhpatch_runtime.h"
 #include "pestcontrol.h"
-#include "liquid_glass.h"
 #include "load_island_policy.h"
 #include "ui_audio.h"
 #include "ui_motion_policy.h"
@@ -119,7 +118,7 @@ void DrawModCard(mods::ModInfo& m, bool launcherMode)
         const ImVec2 icon=ImGui::GetCursorScreenPos();
         auto* draw=ImGui::GetWindowDrawList();
         draw->AddRectFilled(icon,ImVec2(icon.x+38*s,icon.y+38*s),ui::WithAlpha(TypeBadgeColor(m),.16f),10*s);
-        Glass::DrawIcon(draw,m.IsCSharp() ? Glass::Icon::Gamepad : Glass::Icon::Sliders,ImVec2(icon.x+19*s,icon.y+19*s),19,TypeBadgeColor(m));
+        DrawLogo(icon,38*s);
         ImGui::SetCursorPosX(ImGui::GetCursorPosX()+52*s);
         if (ImGui::BeginTable("##layout", 2, ImGuiTableFlags_SizingStretchProp)) {
             ImGui::TableSetupColumn("Details", ImGuiTableColumnFlags_WidthStretch);
@@ -262,12 +261,12 @@ void DrawSettingsPage()
     ImGui::TextWrapped("The in-game manager remains available. Disable this option here to restore the launcher.");
     Divider();
 
-    SectionHeader("LIQUID GLASS", "Global appearance for both managers and mod interfaces. Changes apply immediately.");
+    SectionHeader("APPEARANCE", "Dear ImGui appearance. Changes apply immediately.");
     bool themeChanged=false;
     int appearance=std::clamp(cfg.GetInt("theme","appearance",0),0,1);
-    const char* appearances[]={"Dark glass","Light glass"};
+    const char* appearances[]={"Dark","Light"};
     ImGui::SetNextItemWidth(std::min(240*ui::Scale(),ImGui::GetContentRegionAvail().x));
-    if (Glass::Dropdown("Appearance",appearances,2,&appearance)) { cfg.SetInt("theme","appearance",appearance); themeChanged=true; }
+    if (ImGui::Combo("Appearance",&appearance,appearances,2)) { cfg.SetInt("theme","appearance",appearance); themeChanged=true; }
     float color[3]; const ImVec4 accent=ImGui::ColorConvertU32ToFloat4(ui::Accent()); color[0]=accent.x;color[1]=accent.y;color[2]=accent.z;
     if (ImGui::ColorEdit3("Accent",color,ImGuiColorEditFlags_NoInputs)) {
         char hex[7]; ui::U32ToHex(ImGui::ColorConvertFloat4ToU32(ImVec4(color[0],color[1],color[2],1)),hex);
@@ -278,30 +277,17 @@ void DrawSettingsPage()
         if (ui::ToggleSwitch(key,&value)) {cfg.SetBool("theme",key,value);themeChanged=true;}
         ImGui::SameLine(); ImGui::TextWrapped("%s",label);
     };
-    toggleTheme("High-contrast text","high_contrast",true);
     toggleTheme("Reduce motion","reduce_motion",false);
     toggleTheme("Interface sounds","sounds",true);
-    toggleTheme("Adaptive tint over bright scenes","adaptive_tint",false);
-    auto sliderTheme=[&](const char* label,const char* key,float fallback,float min,float max) {
-        float value=cfg.GetFloat("theme",key,fallback);
-        ImGui::SetNextItemWidth(std::max(100.0f,ImGui::GetContentRegionAvail().x*.65f));
-        if (ui::GlassSlider(label,&value,min,max,"%.2f")) {cfg.SetFloat("theme",key,value);themeChanged=true;}
-    };
-    sliderTheme("Frost / blur","blur",1,0,1);
-    sliderTheme("Tint opacity / readability","opacity",.306f,0,.95f);
-    sliderTheme("Saturation","saturation",1.35f,0,3);
-    sliderTheme("Refraction","refraction",24.49f,0,40);
-    sliderTheme("Chromatic fringe","chroma",30,0,40);
-    sliderTheme("Edge lighting","edge",.485f,0,2);
-    sliderTheme("Shadow","shadow",.046f,0,.8f);
-    sliderTheme("Liquid flow","flow",16,0,24);
-    sliderTheme("Backdrop refresh Hz","blur_hz",10,1,60);
     if (themeChanged) {ui::ApplyTheme(); changed=true;}
     Divider();
 
     SectionHeader("OVERLAY", "How the in-game menu behaves");
-    Badge("ETHHHSDK",ui::Accent()); ImGui::SameLine();
-    ImGui::TextWrapped("Load-success island transitions into the gameplay watermark");
+    bool watermark=cfg.GetBool("core","watermark",true);
+    if (ui::Checkbox("##persistent_notification",&watermark)) {
+        cfg.SetBool("core","watermark",watermark); changed=true;
+    }
+    ImGui::SameLine(); ImGui::TextWrapped("Show persistent status notification (FPS meter)");
 
     bool pause = cfg.GetBool("core", "pause_on_overlay", true);
     if (ui::ToggleSwitch("##pause", &pause)) { cfg.SetBool("core", "pause_on_overlay", pause); changed = true; }
@@ -350,17 +336,17 @@ void DrawSettingsPage()
         { 0x040, "Debug fly" }, { 0x080, "Demo build" }, { 0x100, "Demo magazine" },
     };
     uint16_t current = game::DebugFlags();
+    const int flagColumns=std::max(1,int(ImGui::GetContentRegionAvail().x/(220*ui::Scale())));
+    if (ImGui::BeginTable("##debug_flags",flagColumns)) {
     for (int i = 0; i < (int)(sizeof(flags) / sizeof(flags[0])); ++i) {
+        ImGui::TableNextColumn();
         bool on = (current & flags[i].bit) != 0;
         if (ui::Checkbox(flags[i].name, &on)) {
             game::ToggleDebugFlag(flags[i].bit, on);
             changed = true;
         }
-        if (i + 1 < (int)(sizeof(flags) / sizeof(flags[0]))) {
-            const float required = ImGui::CalcTextSize(flags[i + 1].name).x + 58 * ui::Scale();
-            const float remaining = ImGui::GetContentRegionAvail().x - (ImGui::GetItemRectMax().x - ImGui::GetCursorScreenPos().x);
-            if (remaining >= required) ImGui::SameLine(0, 26 * ui::Scale());
-        }
+    }
+    ImGui::EndTable();
     }
 
     Divider();
@@ -645,14 +631,15 @@ void DrawStratInspector()
 
 void DrawMemoryInspector()
 {
+    const bool compact=ImGui::GetContentRegionAvail().x<650*ui::Scale();
     ImGui::TextDisabled("Address (hex)");
-    ImGui::SameLine(120 * ui::Scale());
+    if (!compact) ImGui::SameLine(120 * ui::Scale());
     ImGui::SetNextItemWidth(140 * ui::Scale());
     ImGui::InputText("##addr", g_memAddr, sizeof(g_memAddr));
-    ImGui::SameLine();
+    if (!compact) ImGui::SameLine();
     ImGui::SetNextItemWidth(110 * ui::Scale());
     ImGui::Combo("##type", &g_memType, kMemTypes, 6);
-    ImGui::SameLine();
+    if (!compact) ImGui::SameLine();
     if (ui::GhostButton("Read", ImVec2(80 * ui::Scale(), 0))) {
         uintptr_t addr = (uintptr_t)strtoul(g_memAddr, nullptr, 16);
         g_memResultOk = false;
@@ -676,16 +663,16 @@ void DrawMemoryInspector()
 
     Divider();
     ImGui::TextDisabled("Write");
-    ImGui::SameLine(120 * ui::Scale());
+    if (!compact) ImGui::SameLine(120 * ui::Scale());
     ImGui::SetNextItemWidth(140 * ui::Scale());
     ImGui::InputText("##waddr", g_memAddr, sizeof(g_memAddr));
-    ImGui::SameLine();
+    if (!compact) ImGui::SameLine();
     ImGui::SetNextItemWidth(90 * ui::Scale());
     ImGui::Combo("##wtype", &g_memWriteType, kWriteTypes, 3);
-    ImGui::SameLine();
+    if (!compact) ImGui::SameLine();
     ImGui::SetNextItemWidth(140 * ui::Scale());
     ImGui::InputText("##wvalue", g_memWriteValue, sizeof(g_memWriteValue));
-    ImGui::SameLine();
+    if (!compact) ImGui::SameLine();
     if (ui::GhostButton("Write", ImVec2(80 * ui::Scale(), 0))) {
         uintptr_t addr = (uintptr_t)strtoul(g_memAddr, nullptr, 16);
         bool ok = false;
@@ -702,11 +689,12 @@ void DrawInspectorPage(bool launcherMode)
     PageTitle("Inspector", "Live engine state, strats, player detection and memory.");
 
     if (launcherMode) {
-        ImGui::TextDisabled("The Inspector becomes available once the game is running.");
+        ImGui::TextWrapped("The Inspector becomes available once the game is running.");
         return;
     }
 
     ImGui::BeginChild("##inspector", ImVec2(0, 0), false);
+    ImGui::PushTextWrapPos(0);
 
     if (ImGui::BeginTabBar("##inspectortabs")) {
         if (ImGui::BeginTabItem("Runtime")) {
@@ -773,6 +761,7 @@ void DrawInspectorPage(bool launcherMode)
         ImGui::EndTabBar();
     }
 
+    ImGui::PopTextWrapPos();
     ImGui::EndChild();
 }
 
@@ -784,7 +773,7 @@ void DrawAboutPage()
     ImGui::PushTextWrapPos(0);
     ImVec2 pos = ImGui::GetCursorScreenPos();
     ImGui::GetWindowDrawList()->AddRectFilled(pos,ImVec2(pos.x+54*ui::Scale(),pos.y+54*ui::Scale()),ui::AccentDim(.16f),15*ui::Scale());
-    Glass::DrawIcon(ImGui::GetWindowDrawList(),Glass::Icon::Spark,ImVec2(pos.x+27*ui::Scale(),pos.y+27*ui::Scale()),27,ui::Accent());
+    DrawLogo(pos,54*ui::Scale());
     ImGui::Dummy(ImVec2(66.0f * ui::Scale(), 54.0f * ui::Scale()));
     if (ImGui::GetContentRegionAvail().x >= 420 * ui::Scale()) ImGui::SameLine();
     ImGui::BeginGroup();
@@ -814,7 +803,7 @@ void DrawAboutPage()
     BulletWrapped("Dear ImGui by Omar Cornut and contributors (MIT).");
     BulletWrapped("MinHook by Tsuda Kageyu (BSD 2-Clause).");
     BulletWrapped("Lua 5.4 by Lua.org, PUC-Rio (MIT).");
-    BulletWrapped("Liquid Glass template: liquidDX11 (MIT). Fonts/icons: Inter and Font Awesome.");
+    BulletWrapped("Interface: Dear ImGui (MIT), using its bundled default font.");
     BulletWrapped("Half-Life movement reference: Valve HLSDK (halflife-steam_legacy).");
     ImGui::TextDisabled("Full notices are bundled. Valve/audio distribution rights still need review.");
 
@@ -1098,35 +1087,21 @@ void DrawSidebar(float width, bool launcherMode, bool* startGame, bool* exitApp)
         { Page::Settings, "Preferences", "06" },
         { Page::About, "About", "07" },
     };
-    const Glass::Icon itemIcons[]={Glass::Icon::Cube,Glass::Icon::LayerGroup,Glass::Icon::Gamepad,Glass::Icon::Crosshairs,
-        Glass::Icon::Terminal,Glass::Icon::Palette,Glass::Icon::InfoCircle};
     const char* shortLabels[]={"Mods","Live UI","Patch","Inspect","Console","Theme","About"};
-    Glass::Icon icons[7]; const char* labels[7]; Page pages[7]; int count=0,current=-1;
+    const char* labels[7]; Page pages[7]; int count=0,current=-1;
     for (int index=0;index<7;++index) {
         const auto& it=items[index];
         if (launcherMode && (it.page == Page::Interfaces || it.page == Page::Inspector))
             continue;
-        icons[count]=itemIcons[index]; labels[count]=width<215*ui::Scale() ? shortLabels[index] : it.label;
+        labels[count]=width<215*ui::Scale() ? shortLabels[index] : it.label;
         pages[count]=it.page; if(g_page==it.page) current=count; ++count;
     }
     const float rowH=42*s;const bool iconOnly=width<140*s;
-    const ImVec2 origin=ImGui::GetCursorScreenPos();auto* dl=ImGui::GetWindowDrawList();
-    const ImGuiID selectionId=ImGui::GetID("##selection");
-    auto& selection=Glass::g->springs().Get(selectionId,200,Glass::SpringStyle::CriticalFast,float(std::max(current,0)));
-    selection.target=float(std::max(current,0));selection.Tick(ImGui::GetIO().DeltaTime);
     const float navWidth=ImGui::GetContentRegionAvail().x;
-    if(current>=0) dl->AddRectFilled(ImVec2(origin.x,origin.y+rowH*selection.x),
-        ImVec2(origin.x+navWidth,origin.y+rowH*(selection.x+1)-4*s),ui::AccentDim(.18f),12*s);
     int chosen=current;
     for(int i=0;i<count;++i) {
-        ImGui::PushID(i);const ImVec2 p=ImGui::GetCursorScreenPos();
-        if(ImGui::InvisibleButton("##destination",ImVec2(navWidth,rowH-4*s),ImGuiButtonFlags_EnableNav)) {chosen=i;PlayUiSound(Sound::Click);}
-        if(ImGui::IsItemHovered() && i!=current) dl->AddRectFilled(p,ImVec2(p.x+navWidth,p.y+rowH-4*s),ui::WithAlpha(ThemeInk(),.05f),12*s);
-        const ImU32 ink=i==current ? ui::Accent() : ThemeSoftInk();
-        Glass::DrawIcon(dl,icons[i],ImVec2(p.x+(iconOnly ? navWidth*.5f : 19*s),p.y+(rowH-4*s)*.5f),17,ink);
-        if(!iconOnly) dl->AddText(ImVec2(p.x+38*s,p.y+(rowH-4*s-ImGui::GetFontSize())*.5f),i==current ? ThemeInk() : ThemeSoftInk(),labels[i]);
-        else if(ImGui::IsItemHovered()) ImGui::SetTooltip("%s",labels[i]);
-        ImGui::Dummy(ImVec2(0,0));ImGui::SetCursorScreenPos(ImVec2(origin.x,origin.y+(i+1)*rowH));
+        ImGui::PushID(i);
+        if(ImGui::Selectable(labels[i],i==current,0,ImVec2(navWidth,rowH-4*s))) chosen=i;
         ImGui::PopID();
     }
     if(chosen>=0 && chosen<count && chosen!=current) {
@@ -1178,7 +1153,7 @@ void DrawManagerLayout(bool launcherMode, bool* startGame, bool* exitApp)
 {
     const float s=ui::Scale();
     const ImVec2 avail=ImGui::GetContentRegionAvail();
-    const float width=avail.x<760*s ? 86*s : std::min(210*s,avail.x*.24f);
+    const float width=avail.x<760*s ? 110*s : std::min(210*s,avail.x*.24f);
     ImGui::BeginChild("##workspace",ImVec2(0,0),false,ImGuiWindowFlags_NoScrollbar);
     DrawSidebar(width,launcherMode,startGame,exitApp);
     ImGui::SameLine(0,0);

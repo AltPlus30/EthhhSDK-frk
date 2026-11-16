@@ -31,6 +31,11 @@ be installed into the game directory.
 ## Controls and mods
 
 - F9: manager; pause-on-overlay and input handling are configurable.
+- The launcher and in-game manager use standard Dear ImGui, without Liquid Glass.
+- Preferences > Overlay > **Show persistent status notification (FPS meter)**
+  toggles the gameplay notification and saves `[core] watermark` in `EthhhSDK.ini`.
+  The brief startup success message remains separate; FPS uses measured game
+  presents and shows a waiting state until samples are available.
 - F9 draws its own foreground arrow/text cursor, independent of the game's
   hidden Windows cursor. It yields on focus loss and disappears on closing F9.
 - Settings > Startup > **Skip launcher and start the game directly** skips the

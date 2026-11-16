@@ -9,9 +9,6 @@ $notices = @(
     @('src\third_party\imgui\LICENSE.txt','licenses\Dear-ImGui.txt'),
     @('src\third_party\minhook\LICENSE.txt','licenses\MinHook.txt'),
     @('src\third_party\lua\LICENSE.txt','licenses\Lua.txt'),
-    @('src\third_party\liquid_glass\LICENSE','licenses\Liquid-Glass.txt'),
-    @('src\third_party\liquid_glass\THIRD-PARTY-NOTICES.md','licenses\Liquid-Glass-Upstream-Notices.md'),
-    @('src\third_party\liquid_glass\DISCLAIMER.md','licenses\Liquid-Glass-Disclaimer.md'),
     @('mods\HalfLifeMovement\LICENSE','licenses\Valve-HLSDK.txt'),
     @('mods\HalfLifeMovement\LICENSE','mods\HalfLifeMovement\LICENSE')
 )

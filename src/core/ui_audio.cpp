@@ -33,16 +33,8 @@ bool DecodeWave(const unsigned char* b,size_t size,std::vector<unsigned char>& o
     for(size_t i=0;i<samples;++i) {out[44+i*2]=data[i*3+1];out[45+i*2]=data[i*3+2];}
     return true;
 }
-void TemplateSound(Glass::Sfx s) {
-    using S=Glass::Sfx;
-    if(s==S::ToggleOn || s==S::CheckOn) PlayUiSound(Sound::On);
-    else if(s==S::ToggleOff || s==S::CheckOff) PlayUiSound(Sound::Off);
-    else if(s==S::Success) PlayUiSound(Sound::Welcome);
-    else if(s!=S::SliderTick && s!=S::ScrubGrab && s!=S::SliderGrab) PlayUiSound(Sound::Click);
-}
 }
 void InitUiAudio() {
-    Glass::g_sfxHandler=TemplateSound;
     if(initialized) return;
     initialized=true;HMODULE module=nullptr;
     GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -72,7 +64,7 @@ void ShutdownUiAudio() {
     if(initialized) PlaySoundA(nullptr,nullptr,0);
 #endif
     // Resource-derived memory remains alive across launcher -> game handoff.
-    Glass::g_sfxHandler=nullptr;protectUntil=0;lastClick=0;
+    protectUntil=0;lastClick=0;
 }
 int UiAudioReadyCount() {int count=0;for(const auto& sound:bank) if(!sound.empty()) ++count;return count;}
 }

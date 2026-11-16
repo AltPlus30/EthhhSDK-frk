@@ -27,7 +27,10 @@ void  U32ToHex(ImU32 col, char out[7]);
 bool ToggleSwitch(const char* id, bool* value, float widthScale = 1.0f);
 bool Checkbox(const char* label, bool* value);
 bool CheckboxFlags(const char* label, unsigned int* value, unsigned int flags);
-bool GlassSlider(const char* label, float* value, float low, float high, const char* format = "%.2f");
+bool Slider(const char* label, float* value, float low, float high, const char* format = "%.2f");
+ImU32 ThemeInk();
+ImU32 ThemeSoftInk();
+ImU32 ThemeSurface();
 bool SearchField(const char* id, char* value, size_t capacity, const char* hint);
 void SetManagerOpacity(float alpha);
 void SectionHeader(const char* title, const char* subtitle = nullptr);
@@ -43,7 +46,7 @@ void EndCard();
 void DrawCardBg(ImVec2 pos, ImVec2 size, ImU32 color, float rounding = 10.0f);
 void DrawLogo(ImVec2 pos, float size);
 
-// Custom-chrome window (title/subtitle/close, draggable header, padded content).
+// Standard ImGui manager window with title, close button and subtitle.
 // If this returns true, the caller must draw content and call EndChromeWindow().
 bool BeginChromeWindow(const char* id, const char* title, const char* subtitle,
                        bool* open, const ImVec2& defaultSize,

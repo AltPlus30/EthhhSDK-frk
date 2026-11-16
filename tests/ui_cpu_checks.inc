@@ -14,7 +14,7 @@ static int RunCpuUiChecks() {
     eth::ui::InitUiAudio();check(eth::ui::UiAudioReadyCount()==5,"all five supplied sounds embed/decode, without playback");
     auto begin=[&](int width=900,int height=640) {
         auto& io=ImGui::GetIO();io.DisplaySize=ImVec2(float(width),float(height));io.DeltaTime=1.0f/60;
-        ImGui::NewFrame();eth::ui::BeginGlassFrame();
+        ImGui::NewFrame();
         ImGui::SetNextWindowPos(ImVec2(0,0));ImGui::SetNextWindowSize(io.DisplaySize);
         ImGui::Begin("##cpu_controls",nullptr,ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoDecoration);
     };
@@ -34,12 +34,12 @@ static int RunCpuUiChecks() {
     check((ImGui::GetCurrentContext()->LastItemData.ItemFlags&ImGuiItemFlags_MixedValue)!=0,"partially selected masks draw mixed state");
     int nativeValue=1;check(!EthImGui_Checkbox("C ABI checkbox",&nativeValue) && nativeValue==1,"managed C ABI still accepts integer checkbox storage");
     float nan=std::numeric_limits<float>::quiet_NaN(),inf=std::numeric_limits<float>::infinity(),fixed=2,reverse=7,wide=0;
-    check(eth::ui::GlassSlider("NaN",&nan,0,1) && nan==0,"nonfinite slider value recovers safely");
-    check(eth::ui::GlassSlider("Infinity",&inf,0,1) && inf==1,"infinite slider value clamps safely");
-    check(eth::ui::GlassSlider("Fixed",&fixed,1,1) && fixed==1,"zero-width slider range has finite geometry");
-    check(!eth::ui::GlassSlider("Reversed",&reverse,8,2) && reverse==7,"invalid slider range cannot mutate user value");
-    check(!eth::ui::GlassSlider("Wide",&wide,-FLT_MAX,FLT_MAX),"finite extreme slider range does not overflow");
-    ImGui::PushItemWidth(4);eth::ui::GlassSlider("Tiny",&wide,0,1);ImGui::PopItemWidth();
+    check(eth::ui::Slider("NaN",&nan,0,1) && nan==0,"nonfinite slider value recovers safely");
+    check(eth::ui::Slider("Infinity",&inf,0,1) && inf==1,"infinite slider value clamps safely");
+    check(eth::ui::Slider("Fixed",&fixed,1,1) && fixed==1,"zero-width slider range has finite geometry");
+    check(!eth::ui::Slider("Reversed",&reverse,8,2) && reverse==7,"invalid slider range cannot mutate user value");
+    check(!eth::ui::Slider("Wide",&wide,-FLT_MAX,FLT_MAX),"finite extreme slider range does not overflow");
+    ImGui::PushItemWidth(4);eth::ui::Slider("Tiny",&wide,0,1);ImGui::PopItemWidth();
     finish();
     // Generate mouse events inside ImGui ONLY; no Windows input is sent.
     bool value=false;ImVec2 center;
@@ -52,6 +52,22 @@ static int RunCpuUiChecks() {
         finish();ImGui::GetIO().AddMousePosEvent(center.x,center.y);
     }
     lua_close(L);
+    // Persistent notification is optional; startup confirmation stays transient.
+    eth::ui::pages::TestSetStartupSeconds(100);
+    for (bool enabled : {true,false,true}) {
+        eth::Config::Get().SetBool("core","watermark",enabled);
+        ImGui::NewFrame();
+        eth::ui::pages::DrawStartupWatermark();
+        ImGui::Render();
+        auto* notification=ImGui::FindWindowByName("##ethhh_watermark");
+        check(notification && notification->Active==enabled,"saved notification toggle controls steady-state rendering");
+    }
+    eth::Config::Get().SetBool("core","watermark",false);
+    eth::ui::pages::TestSetStartupSeconds(eth::ui::load::kDelay+.5f);
+    ImGui::NewFrame(); eth::ui::pages::DrawStartupWatermark(); ImGui::Render();
+    check(ImGui::FindWindowByName("##ethhh_watermark")->Active,"temporary startup message remains independent");
+    eth::ui::pages::TestSetStartupSeconds(-1);
+    eth::Config::Get().SetBool("core","watermark",true);
     // In-memory layout fixtures only: do not scan/load mods or read manifests.
     auto& manager=eth::mods::ModManager::Get();
     eth::mods::ModInfo fixture;
@@ -78,8 +94,10 @@ static int RunCpuUiChecks() {
             for(int frame=0;frame<6;++frame) {
                 eth::ui::pages::SetCurrentPage(eth::ui::pages::Page(page));
                 auto& io=ImGui::GetIO();io.DisplaySize=ImVec2(float(size.w),float(size.h));io.DeltaTime=1.0f/60;
-                io.AddMousePosEvent(-FLT_MAX,-FLT_MAX);ImGui::NewFrame();eth::ui::BeginGlassFrame();
-                ImGui::SetNextWindowPos(ImVec2(0,0));eth::ui::SetManagerOpacity(.5f);
+                io.AddMousePosEvent(-FLT_MAX,-FLT_MAX);ImGui::NewFrame();
+                ImGui::SetNextWindowPos(ImVec2(0,0));
+                ImGui::SetNextWindowSize(io.DisplaySize,ImGuiCond_Always);
+                eth::ui::SetManagerOpacity(.5f);
                 bool open=true;
                 if(eth::ui::BeginChromeWindow("##cpu_manager","EthhhSDK","I-Ninja",&open,io.DisplaySize,ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove)) {
                     eth::ui::pages::DrawManagerLayout(launcher);eth::ui::EndChromeWindow();
@@ -105,12 +123,12 @@ static int RunCpuUiChecks() {
                 check(selected && !strcmp(ImGui::TabBarGetTabName(selectedBar,selected),tabs[tab]),"requested actual patch tab is selected");
             }
             for(auto* w:ImGui::GetCurrentContext()->Windows) if(w->Active && strstr(w->Name,"##cpu_manager")) {
-                if(w->ScrollMax.x>=1) fprintf(stderr,"CPU overflow: page %d tab %d %s, %dx%d scale %.2f, %s %.1f\n",page,tab,bottom ? "bottom" : "top",size.w,size.h,size.scale,w->Name,w->ScrollMax.x);
+                if(w->ScrollMax.x>=1) fprintf(stderr,"CPU overflow: page %d tab %d %s, %dx%d scale %.2f, %s %.1f (window %.1f, content %.1f)\n",page,tab,bottom ? "bottom" : "top",size.w,size.h,size.scale,w->Name,w->ScrollMax.x,w->Size.x,w->ContentSize.x);
                 check(w->ScrollMax.x<1,"real manager page stays inside horizontal bounds");
                 check(std::abs(w->Scroll.y-(bottom ? w->ScrollMax.y : 0))<1,"real manager page reaches requested scroll end");
                 for(const auto& v:w->DrawList->VtxBuffer) {
                     check(std::isfinite(v.pos.x) && std::isfinite(v.pos.y),"real manager vertices finite");
-                    check((v.col>>IM_COL32_A_SHIFT)<=128,"manager contents cannot fade ahead of their single pane");
+                    check((v.col>>IM_COL32_A_SHIFT)<=128,"all manager contents respect transition opacity");
                 }
             }
             check(ImGui::GetCurrentContext()->CurrentWindowStack.Size==0,"all real pages finish balanced");
@@ -118,7 +136,7 @@ static int RunCpuUiChecks() {
             }
         }
     }
-    eth::ui::SetManagerOpacity(1);eth::ui::ShutdownGlass();eth::ui::ShutdownUiAudio();ImGui::DestroyContext();
+    eth::ui::SetManagerOpacity(1);eth::ui::ShutdownUiAudio();ImGui::DestroyContext();
     printf("PASS CPU production UI/layout/bindings/audio checks: %d assertions (no graphics device or playback)\n",assertions);
     return 0;
 }
