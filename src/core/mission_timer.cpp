@@ -23,19 +23,37 @@ std::atomic<bool> stopped{false};
 
 uintptr_t CountdownAddress(uintptr_t strat)
 {
-    uint32_t cls = 0, name = 0, code = 0;
-    char text[13]{};
-    uint32_t words[std::size(kCountdown)]{};
-    if (!SafeRead(strat + 0x1A8, cls) || !cls ||
-        !SafeRead(cls + 4, name) || !name ||
-        !SafeReadBytes(name, text, sizeof(text)) ||
-        memcmp(text, "MissionTimer", sizeof(text)) ||
-        !SafeRead(cls + 0xC, code) || !code ||
-        code > UINT32_MAX - kCountdownOffset - sizeof(words)) return 0;
-    const uintptr_t address = code + kCountdownOffset;
-    if (!SafeReadBytes(address, words, sizeof(words)) ||
-        memcmp(words, kCountdown, sizeof(words))) return 0;
-    return address;
+    // This runs for EVERY strat's interpreter invocation. SafeRead performs a
+    // VirtualQuery per read: even rejecting non-timers incurred three system
+    // calls. These are native-owned objects on the VM thread, not arbitrary UI
+    // addresses. Guard direct access with SEH, without caching heap identities.
+    __try {
+        if (!strat || strat > UINT32_MAX - 0x1AC) return 0;
+        const uintptr_t cls = *reinterpret_cast<const uint32_t*>(strat + 0x1A8);
+        if (!cls || cls > UINT32_MAX - 0x10) return 0;
+        const auto* name = *reinterpret_cast<const char* const*>(cls + 4);
+        if (!name || memcmp(name, "MissionTimer", sizeof("MissionTimer"))) return 0;
+        const uintptr_t code = *reinterpret_cast<const uint32_t*>(cls + 0xC);
+        if (!code || (code & 3) ||
+            code > UINT32_MAX - kCountdownOffset - sizeof(kCountdown)) return 0;
+        const uintptr_t address = code + kCountdownOffset;
+        if (memcmp(reinterpret_cast<const void*>(address), kCountdown, sizeof(kCountdown))) return 0;
+        return address;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+
+bool WriteScriptWord(uintptr_t address, uint32_t expected, uint32_t replacement)
+{
+    // Interpreted ASL data, NOT native executable code. No VirtualProtect or
+    // FlushInstructionCache is needed. Read-only/invalid storage fails closed.
+    __try {
+        auto* word = reinterpret_cast<volatile uint32_t*>(address);
+        if (*word != expected) return false;
+        *word = replacement;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
 void __fastcall VmDetour(void* self, void*)
@@ -43,7 +61,7 @@ void __fastcall VmDetour(void* self, void*)
     uintptr_t patched = 0;
     if (stopped.load(std::memory_order_relaxed)) {
         patched = CountdownAddress(reinterpret_cast<uintptr_t>(self));
-        if (patched && !SafeWrite(patched, kSkipCountdown)) patched = 0;
+        if (patched && !WriteScriptWord(patched, kCountdown[0], kSkipCountdown)) patched = 0;
     }
     // No saved heap pointers survive this invocation. Streaming/restarts may
     // replace the class; it is resolved and fingerprinted again on every call.
@@ -51,9 +69,7 @@ void __fastcall VmDetour(void* self, void*)
         if (original) original(self);
     }
     __finally {
-        uint32_t current = 0;
-        if (patched && SafeRead(patched, current) && current == kSkipCountdown)
-            SafeWrite(patched, kCountdown[0]);
+        if (patched) WriteScriptWord(patched, kSkipCountdown, kCountdown[0]);
     }
 }
 }

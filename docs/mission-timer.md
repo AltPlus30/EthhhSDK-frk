@@ -48,6 +48,26 @@ subtraction **and** expiration. A `__finally` restores the original word, includ
 when the VM raises an exception. No heap pointer or patch is retained between
 calls, avoiding writes to a previous level's freed script memory.
 
+### Freeze-path performance
+
+The initial implementation called `SafeRead` while identifying every strat
+executed by the VM. Each of those reads performs `VirtualQuery`: even rejecting
+an ordinary non-timer cost three system calls per invocation. Its generic
+`SafeWrite` also queried memory and could flush the native instruction cache
+when the game's script allocation had executable protection.
+
+The hot path now uses **SEH-guarded direct reads and writes**, with no memory
+queries, protection changes or instruction-cache flushes. ASL bytecode is
+interpreted data, not x86 code. Read-only storage fails closed rather than
+changing its protection. Exact class/fingerprint checks and scoped restoration
+remain; neither positive nor negative heap identities are cached across calls.
+
+The synthetic Win32 Release benchmark for 200,000 non-timer identifications
+measured **191.492 ms before / 0.775 ms after** (about 247x for identification,
+**not** a claim about game FPS). Tests also require zero `SafeRead`/`SafeWrite`
+calls on the enabled detour path, and cover invalid pointers, read-only script
+storage, same-address class changes and restoration after exceptions.
+
 `class = [s+1A8]`, `code = [class+C]`, countdown site = `code+298`:
 
 ```text
@@ -133,8 +153,10 @@ Static Ghidra/REA evidence:
 
 The Win32 DLL build and synthetic production-detour tests passed (opt-in,
 multiple owners, exact class/fingerprint refusal, jump destination, normal and
-exceptional restoration). No I-Ninja process was running during investigation;
-the actual HUD/mission outcome and Cheat Engine script remain **unverified live**.
+exceptional restoration). The user confirmed that the original freeze works
+in-game, but reported a significant enabled-state frame-rate regression.
+The optimized path above has passed synthetic tests; its in-game performance
+still needs confirmation. The Cheat Engine script remains **unverified live**.
 Manual check: load a timed challenge, enable, play for ten seconds, verify the
 countdown stays fixed while movement works, disable and verify it resumes.
 Repeat near expiration, across restart/loading, and when unloading the trainer.
