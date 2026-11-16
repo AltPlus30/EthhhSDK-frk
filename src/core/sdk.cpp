@@ -12,6 +12,7 @@
 #include "config.h"
 #include "pestcontrol.h"
 #include "button_prompts.h"
+#include "mission_timer.h"
 #include "ethhhpatch_runtime.h"
 #include "mods.h"
 #include "hooks.h"
@@ -94,6 +95,7 @@ ETH_CAPI(void, EthhhSDK_EntryGate, (void))
             if (hooks::InstallTickHook())
                 patch::runtime::InitializeCamera();
             if (!prompts::Install()) ETH_WARN("Button prompt hooks unavailable");
+            if (!mission_timer::Install()) ETH_WARN("Mission timer hook unavailable");
         }
     }
 

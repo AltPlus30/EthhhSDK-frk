@@ -2,6 +2,7 @@
 #include "util.h"
 #include "log.h"
 #include "button_prompts.h"
+#include "mission_timer.h"
 
 extern "C" {
 #include "lua.h"
@@ -116,6 +117,7 @@ void CallHooks(LuaMod& m, const char* event, int nargs = 0, std::function<void(l
             if (m.errors >= 8) {
                 m.disabled = true;
                 prompts::Release(m.id);
+                mission_timer::Release(m.id);
                 ETH_ERROR("lua[%s]: too many errors, mod disabled", m.id.c_str());
                 mods::ModManager::Get().SetStatus(m.id, "error: " + err);
                 break;
@@ -198,6 +200,7 @@ bool LoadMod(mods::ModInfo& mod)
         ETH_ERROR("lua[%s]: load failed: %s", mod.id.c_str(), m.lastError.c_str());
         lua_close(m.L);
         prompts::Release(mod.id);
+        mission_timer::Release(mod.id);
         return false;
     }
 
@@ -216,6 +219,7 @@ void UnloadMod(const std::string& id)
     if (it->second.L) lua_close(it->second.L);
     // Lua finalizers can call APIs; release after they have finished too.
     prompts::Release(id);
+    mission_timer::Release(id);
     g_mods.erase(it);
     if (auto* mi = mods::ModManager::Get().Find(id)) {
         mi->loaded = false;

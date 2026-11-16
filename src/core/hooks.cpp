@@ -9,6 +9,7 @@
 #include "ethhhpatch_runtime.h"
 #include "pestcontrol.h"
 #include "button_prompts.h"
+#include "mission_timer.h"
 
 #include <MinHook.h>
 
@@ -384,6 +385,7 @@ void Shutdown()
     input::EndNativeTick();
     patch::runtime::Shutdown();
     prompts::Shutdown();
+    mission_timer::Shutdown();
     if (g_hookedHwnd && g_oldWndProc) {
         SetWindowLongPtrA(g_hookedHwnd, GWLP_WNDPROC, (LONG_PTR)g_oldWndProc);
         g_oldWndProc = nullptr;

@@ -9,6 +9,7 @@
 #include "mods.h"
 #include "overlay.h"
 #include "button_prompts.h"
+#include "mission_timer.h"
 
 extern "C" {
 #include "lua.h"
@@ -90,6 +91,10 @@ int g_time(lua_State* L)        { lua_pushnumber(L, game::GameTime()); return 1;
 int g_time_step(lua_State* L)   { lua_pushnumber(L, game::TimeStep()); return 1; }
 int g_timescale(lua_State* L)   { lua_pushnumber(L, game::TimeScale()); return 1; }
 int g_set_timescale(lua_State* L) { game::SetTimeScale((float)luaL_checknumber(L, 1)); return 0; }
+int g_stop_mission_timer(lua_State* L) {
+    lua_pushboolean(L, mission_timer::SetStopped(ModId(L), lua_toboolean(L, 1) != 0));
+    return 1;
+}
 
 int g_debug_flags(lua_State* L) { lua_pushinteger(L, game::DebugFlags()); return 1; }
 int g_set_debug_flags(lua_State* L) { game::SetDebugFlags((uint16_t)luaL_checkinteger(L, 1)); return 0; }
@@ -571,6 +576,7 @@ void RegisterApi(lua_State* L, const mods::ModInfo& mod)
         { "set_button_prompts", g_set_button_prompts },
         { "tick", g_tick }, { "frame", g_frame }, { "time", g_time },
         { "time_step", g_time_step }, { "timescale", g_timescale }, { "set_timescale", g_set_timescale },
+        { "stop_mission_timer", g_stop_mission_timer },
         { "debug_flags", g_debug_flags }, { "set_debug_flags", g_set_debug_flags }, { "toggle_flag", g_toggle_flag },
         { "camera", g_camera }, { "set_camera_pos", g_set_camera_pos }, { "set_camera_fov", g_set_camera_fov },
         { "camera_fov_deg", g_camera_fov_deg }, { "update_view", g_update_view }, { "set_camera_world", g_set_camera_world },

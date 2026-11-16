@@ -18,6 +18,7 @@ local F6, F7, F8 = 0x75, 0x76, 0x77
 --  Persisted state
 -- ---------------------------------------------------------------------------
 local S = {
+    stopTimer     = false, -- session-only; unloading the mod releases the request
     slowmo        = settings.get_bool("slowmo", false),
     timescale     = settings.get_float("timescale", 1.0),
     teleOffset    = settings.get_float("tele_offset", 0.0),
@@ -180,6 +181,22 @@ hook.add("gui", function()
             game.set_timescale(1.0)
         end
 
+        ui.separator()
+
+        ------------------------------------------------------------ mission timer
+        if game.stop_mission_timer then
+            local stop, changed = ui.checkbox("Stop mission timer", S.stopTimer)
+            if changed then
+                if game.stop_mission_timer(stop) then
+                    S.stopTimer = stop
+                else
+                    log.warn("trainer: mission timer hook unavailable (unsupported executable)")
+                end
+            end
+            ui.text_disabled("Freezes MissionTimer countdown only; movement and other timers continue.")
+        else
+            ui.text_disabled("Stop mission timer requires an updated EthhhSDK.dll.")
+        end
         ui.separator()
 
         ------------------------------------------------------------ debug flags

@@ -42,6 +42,7 @@ be installed into the game directory.
   pre-game manager on subsequent boots. Re-enable it from the in-game Settings,
   or set `[core] launcher=true` in `EthhhSDK.ini`.
 - `mods/trainer/mod.lua`: Lua trainer and inspection example.
+  Includes [Stop mission timer](docs/mission-timer.md) (findings and Cheat Engine recipe).
 - `mods/XboxPrompts/mod.lua`: Xbox icons in native embedded button prompts;
   [mapping, installation and verification status](docs/xbox-prompts.md).
 - [Generic button-prompt support](docs/button-prompts.md): mods supply their

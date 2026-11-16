@@ -1,4 +1,11 @@
 # The fake native ABI is isolated from build/dist and never installed.
+add_executable(eth_mission_timer_tests MissionTimerTests.cpp)
+target_include_directories(eth_mission_timer_tests PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/imgui)
+target_link_libraries(eth_mission_timer_tests PRIVATE minhook)
+set_target_properties(eth_mission_timer_tests PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tests/interop"
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")
+
 add_executable(eth_button_prompt_tests ButtonPromptTests.cpp)
 target_include_directories(eth_button_prompt_tests PRIVATE ${ETH_ROOT}/src/core)
 set_target_properties(eth_button_prompt_tests PROPERTIES
