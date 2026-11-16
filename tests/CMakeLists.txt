@@ -1,7 +1,13 @@
 # The fake native ABI is isolated from build/dist and never installed.
-add_executable(eth_xbox_prompt_tests XboxPromptTests.cpp)
-target_include_directories(eth_xbox_prompt_tests PRIVATE ${ETH_ROOT}/src/core)
-set_target_properties(eth_xbox_prompt_tests PROPERTIES
+add_executable(eth_button_prompt_tests ButtonPromptTests.cpp)
+target_include_directories(eth_button_prompt_tests PRIVATE ${ETH_ROOT}/src/core)
+set_target_properties(eth_button_prompt_tests PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tests/interop"
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")
+add_executable(eth_button_prompt_runtime_tests ButtonPromptRuntimeTests.cpp)
+target_include_directories(eth_button_prompt_runtime_tests PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/imgui)
+target_link_libraries(eth_button_prompt_runtime_tests PRIVATE minhook)
+set_target_properties(eth_button_prompt_runtime_tests PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tests/interop"
   RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")
 

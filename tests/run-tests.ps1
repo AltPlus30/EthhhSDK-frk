@@ -57,10 +57,14 @@ foreach ($mode in @('additive','camera-only')) {
     & "$out\ManagedInteropTests.exe" 0.025 $mode
     if ($LASTEXITCODE -ne 0) { throw "Managed input-ownership regression failed ($mode)." }
 }
-& $cmake --build $build --config $Configuration --target eth_xbox_prompt_tests
-if ($LASTEXITCODE -ne 0) { throw 'Xbox prompt test build failed' }
-& "$out\eth_xbox_prompt_tests.exe"
-if ($LASTEXITCODE -ne 0) { throw 'Xbox prompt tests failed' }
+& $cmake --build $build --config $Configuration --target eth_button_prompt_tests eth_button_prompt_runtime_tests
+if ($LASTEXITCODE -ne 0) { throw 'Button prompt test build failed' }
+& "$out\eth_button_prompt_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Button prompt tests failed' }
+& "$out\eth_button_prompt_runtime_tests.exe" (Join-Path $root 'mods\XboxPrompts\buttons.tga')
+if ($LASTEXITCODE -ne 0) { throw 'Button prompt runtime tests failed' }
+& python "$root\tests\test_button_prompt_packaging.py"
+if ($LASTEXITCODE -ne 0) { throw 'Button prompt packaging tests failed' }
 & "$out\eth_player_learning_tests.exe"
 if ($LASTEXITCODE -ne 0) { throw 'Player learning regression failed.' }
 & "$out\eth_player_tracker_tests.exe"

@@ -69,10 +69,8 @@ if (Test-Path $modsBuild) {
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\stage-notices.ps1')
 if ($LASTEXITCODE -ne 0) { throw "Notice staging failed ($LASTEXITCODE)." }
 
-$promptStage = Join-Path $dist 'mods\XboxPrompts'
-New-Item -ItemType Directory -Force -Path $promptStage | Out-Null
-Copy-Item (Join-Path $root 'mods\XboxPrompts\mod.lua') $promptStage -Force
-Copy-Item (Join-Path $root 'mods\XboxPrompts\mod.json') $promptStage -Force
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\stage-lua-mods.ps1')
+if ($LASTEXITCODE -ne 0) { throw "Lua mod staging failed ($LASTEXITCODE)." }
 
 if (-not (Test-Path $dist)) { throw "Build finished but $dist does not exist." }
 

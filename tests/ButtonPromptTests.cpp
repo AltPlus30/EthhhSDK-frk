@@ -1,4 +1,4 @@
-#include "xbox_prompt_pixels.h"
+#include "button_prompt_pixels.h"
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -28,12 +28,20 @@ int main(int argc, char** argv)
     tga.insert(tga.end(), {1,2,3,4,5,6});
     CHECK(DecodeTga(tga.data(), tga.size(), w, h, pixels));
     CHECK(pixels == std::vector<uint32_t>({0xff030201,0xff060504}));
-    CHECK(IconForCode(0) == -1 && IconForCode(31) == -1);
-    CHECK(IconForCode(15) == IconForCode(1));
-    CHECK(IconForCode(16) == IconForCode(3));
-    // Supplied rage ordering differs from the game's token ordering.
-    CHECK(IconForCode(17) == 13 && IconForCode(18) == 15);
-    CHECK(IconForCode(19) == 16 && IconForCode(20) == 14);
+    std::vector<Region> regions{{1,0,0,32,24,34}, {15,0,0,32,24,34}};
+    CHECK(ValidateRegions(256, 96, regions));
+    CHECK(!ValidateRegions(256, 96, {}));
+    auto invalid = regions;
+    invalid[1].code = 1; CHECK(!ValidateRegions(256, 96, invalid));
+    invalid = regions; invalid[0].code = 0; CHECK(!ValidateRegions(256, 96, invalid));
+    invalid[0].code = 31; CHECK(!ValidateRegions(256, 96, invalid));
+    invalid = regions; invalid[0].width = 129; CHECK(!ValidateRegions(256, 96, invalid));
+    invalid = regions; invalid[0].advance = 0; CHECK(!ValidateRegions(256, 96, invalid));
+    invalid = regions; invalid[0].x = 250; CHECK(!ValidateRegions(256, 96, invalid));
+    invalid[0].x = UINT32_MAX; CHECK(!ValidateRegions(256, 96, invalid));
+    invalid = regions; invalid[0].y = 90; CHECK(!ValidateRegions(256, 96, invalid));
+    // Custom system: a different rectangle/advance for any non-newline code.
+    CHECK(ValidateRegions(64, 64, {{30,1,2,40,16,42}}));
     // Optional actual font TGA inputs exercise the production decoder without
     // storing game assets in this repository.
     for (int i = 1; i < argc; ++i) {
@@ -43,6 +51,6 @@ int main(int argc, char** argv)
         CHECK(DecodeTga(bytes.data(), bytes.size(), w, h, pixels));
         std::printf("Decoded %s: %ux%u\n", argv[i], w, h);
     }
-    std::puts("Xbox prompt decoder/mapping checks passed");
+    std::puts("Button prompt decoder/region validation checks passed");
     return 0;
 }

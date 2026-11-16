@@ -8,7 +8,7 @@
 #include "ethhhpatch.h"
 #include "ethhhpatch_runtime.h"
 #include "pestcontrol.h"
-#include "xbox_prompts.h"
+#include "button_prompts.h"
 
 #include <MinHook.h>
 

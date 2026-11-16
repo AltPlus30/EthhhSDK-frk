@@ -11,7 +11,7 @@
 #include "log.h"
 #include "config.h"
 #include "pestcontrol.h"
-#include "xbox_prompts.h"
+#include "button_prompts.h"
 #include "ethhhpatch_runtime.h"
 #include "mods.h"
 #include "hooks.h"
@@ -93,7 +93,7 @@ ETH_CAPI(void, EthhhSDK_EntryGate, (void))
         } else {
             if (hooks::InstallTickHook())
                 patch::runtime::InitializeCamera();
-            if (!prompts::Install()) ETH_WARN("Xbox prompt hooks unavailable");
+            if (!prompts::Install()) ETH_WARN("Button prompt hooks unavailable");
         }
     }
 

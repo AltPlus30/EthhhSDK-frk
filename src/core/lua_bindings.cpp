@@ -8,7 +8,7 @@
 #include "log.h"
 #include "mods.h"
 #include "overlay.h"
-#include "xbox_prompts.h"
+#include "button_prompts.h"
 
 extern "C" {
 #include "lua.h"
@@ -239,8 +239,48 @@ int g_player(lua_State* L)
     return 4;
 }
 
-int g_xbox_prompts(lua_State* L) {
-    lua_pushboolean(L, prompts::SetEnabled(ModId(L), lua_toboolean(L, 1) != 0));
+int g_set_button_prompts(lua_State* L)
+{
+    if (lua_isnoneornil(L, 1)) {
+        prompts::Release(ModId(L));
+        lua_pushboolean(L, true); return 1;
+    }
+    // Validate without raising Lua longjmp errors while owning C++ objects.
+    std::string error;
+    std::vector<prompts::Region> regions;
+    size_t length = 0;
+    const char* path = lua_type(L, 1) == LUA_TSTRING ? lua_tolstring(L, 1, &length) : nullptr;
+    const size_t count = lua_istable(L, 2) ? lua_rawlen(L, 2) : 0;
+    if (!path || !count || count > 30) error = "Expected a relative TGA path and 1..30 region records";
+    for (size_t i = 1; error.empty() && i <= count; ++i) {
+        lua_rawgeti(L, 2, i);
+        prompts::Region region{};
+        if (!lua_istable(L, -1)) error = "Each prompt region must be a table";
+        else {
+            const char* keys[] = {"code", "x", "y", "width", "height", "advance"};
+            unsigned* values[] = {&region.code, &region.x, &region.y,
+                                  &region.width, &region.height, &region.advance};
+            for (unsigned k = 0; k < 6; ++k) {
+                lua_getfield(L, -1, keys[k]);
+                int integer = 0;
+                const auto value = lua_tointegerx(L, -1, &integer);
+                if (!integer || value < 0 || value > 4096)
+                    error = "Region fields must be integers in 0..4096";
+                else *values[k] = unsigned(value);
+                lua_pop(L, 1);
+            }
+        }
+        lua_pop(L, 1);
+        regions.push_back(region);
+    }
+    bool ok = false;
+    if (error.empty()) {
+        const auto* mod = mods::ModManager::Get().Find(ModId(L));
+        if (!mod) error = "Mod identity unavailable";
+        else ok = prompts::Load(mod->id, mod->dir, std::string(path, length), regions, error);
+    }
+    lua_pushboolean(L, ok);
+    if (!ok) { lua_pushlstring(L, error.data(), error.size()); return 2; }
     return 1;
 }
 int g_player_addr(lua_State* L) { lua_pushinteger(L, (lua_Integer)game::PlayerTracker::Get().Addr()); return 1; }
@@ -528,7 +568,7 @@ void SetFuncs(lua_State* L, const luaL_Reg* funcs)
 void RegisterApi(lua_State* L, const mods::ModInfo& mod)
 {
     static const luaL_Reg gameFuncs[] = {
-        { "xbox_prompts", g_xbox_prompts },
+        { "set_button_prompts", g_set_button_prompts },
         { "tick", g_tick }, { "frame", g_frame }, { "time", g_time },
         { "time_step", g_time_step }, { "timescale", g_timescale }, { "set_timescale", g_set_timescale },
         { "debug_flags", g_debug_flags }, { "set_debug_flags", g_set_debug_flags }, { "toggle_flag", g_toggle_flag },

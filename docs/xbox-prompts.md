@@ -1,16 +1,17 @@
 # Xbox Button Prompts
 
-Built on branch `actual-work`. Enable **Xbox Button Prompts** in the SDK mod
+Refactored on branch `rewire`. Enable **Xbox Button Prompts** in the SDK mod
 manager. It uses the fixed controller layout supplied with this request, including
 when keyboard input is used; it does not remap input.
 
 ## Build / install
 
-The compiled icon resource is included in the source tree. Rebuilding does not
-require Pillow or access to the original image folder. To regenerate it:
+The mod supplies `buttons.tga` and its layout in `mod.lua`; no Xbox artwork or
+mapping is compiled into the SDK. Rebuilding does not require Pillow or access
+to the original image folder. To regenerate the mod's texture:
 
 ```powershell
-python tools/convert-xbox-prompts.py "D:\AI\opencode\temp\i-ninja prompts\img"
+python mods/XboxPrompts/convert-images.py "D:\AI\opencode\temp\i-ninja prompts\img"
 .\build.ps1 -Reconfigure
 ```
 
@@ -50,12 +51,13 @@ text. Plain labels in the controller-binding configuration screen (for example
 | 20 | Revive | D-pad right |
 
 Code 31 remains a newline. Unmapped codes retain native behavior. All 22 supplied
-images were converted; right-stick images are retained in the resource but no
+images were converted; right-stick images are retained in the mod's texture but no
 verified right-stick prompt token was found in this font's substitution table.
 
-Lua API: `game.xbox_prompts(boolean)` returns whether the request was accepted.
-Ownership is associated with the requesting mod and released on unload, failed
-load or automatic Lua error-disable. Only one mod can own this feature.
+The mod calls the generic `game.set_button_prompts(path, regions)` API.
+See [SDK button-prompt support](button-prompts.md) to supply a different button
+set, dimensions or mappings. The former `game.xbox_prompts(boolean)` prototype
+was removed: use the generic API rather than asking the SDK for branded assets.
 
 ## Implementation / evidence
 
@@ -95,7 +97,7 @@ Static analysis does not establish live appearance. No in-game visual acceptance
 has been performed; check tutorials, dialogue, pause prompts, enable/disable,
 level reload and display Reset in the installed game.
 
-## Checks run
+## Original implementation checks (before modularization)
 
 - Release SDK and mod staging: passed; latest DLL includes the corrected icon
   orientation.
@@ -108,4 +110,17 @@ level reload and display Reset in the installed game.
   Consequently the full regression suite is **not** reported as passing.
 - `git diff --check`: passed.
 
-Artifacts are staged, not installed. Branch remains `actual-work`.
+## Modularization checks
+
+- Release SDK and generic Lua-mod staging: passed.
+- `eth_button_prompt_tests`: passed, including the mod's external 256×96 TGA.
+- `eth_button_prompt_runtime_tests`: production loading, ownership, path
+  confinement, atomic replacement failure and cache/resource release passed.
+- `tests/test_button_prompt_packaging.py`: custom user mod/nested asset staging,
+  invalid asset rejection, and absence of embedded Xbox resources passed.
+- `tests/test_notice_packaging.py`: 3 failures in untouched branch content
+  (expects 9 notices but the branch supplies 6; missing FreeType caveat;
+  Valve license hash mismatch). These were not changed as part of this work.
+
+Artifacts are staged, not installed. Branch remains `rewire`. No new live
+visual verification was performed.

@@ -1,9 +1,10 @@
-#include "xbox_prompts.h"
-#include "xbox_prompt_pixels.h"
+#include "button_prompts.h"
 #include "game.h"
 #include "util.h"
 #include "log.h"
 #include <MinHook.h>
+#include <filesystem>
+#include <fstream>
 
 namespace eth::prompts {
 namespace {
@@ -50,7 +51,12 @@ std::map<Font*, std::unique_ptr<Atlas>> atlases;
 std::recursive_mutex mutex;
 std::string owner;
 bool installed = false;
-const uint8_t* icons = nullptr;
+struct Pack {
+    unsigned width = 0, height = 0;
+    std::vector<uint32_t> pixels;
+    std::vector<Region> regions;
+};
+Pack pack;
 using InitFn = void(__thiscall*)(Font*, void*);
 using MeasureFn = int(__thiscall*)(Font*, const char**, float, int*);
 using QueueFn = void(__thiscall*)(Font*, const char*, float, float, float, float,
@@ -64,7 +70,7 @@ constexpr uintptr_t targets[] = {0x40d3a0, 0x40d470, 0x40d630, 0x448670};
 
 std::unique_ptr<Atlas> Build(Font* font)
 {
-    if (!icons || !font || !font->texture || !font->glyphs ||
+    if (pack.pixels.empty() || !font || !font->texture || !font->glyphs ||
         font->count < 32 || font->count > 1024 || !font->substitutions ||
         (font->rotated & 255)) return {};
     auto* original = font->texture;
@@ -79,9 +85,18 @@ std::unique_ptr<Atlas> Build(Font* font)
     auto atlas = std::make_unique<Atlas>();
     atlas->glyphs.assign(font->glyphs, font->glyphs + font->count);
     std::copy_n(font->substitutions, 32, atlas->substitutions.begin());
-    unsigned columns = w / 34, rows = (17 + columns - 1) / columns;
+    // Pack arbitrary mod regions into padded shelves above the native artwork.
+    std::map<unsigned, std::pair<unsigned, unsigned>> positions;
+    unsigned px = 1, py = 1, shelf = 0;
+    for (const auto& region : pack.regions) {
+        if (region.width + 2 > w) return {};
+        if (px + region.width + 1 > w) { px = 1; py += shelf + 2; shelf = 0; }
+        positions[region.code] = {px, py};
+        px += region.width + 2;
+        shelf = (std::max)(shelf, region.height);
+    }
     unsigned newH = 1;
-    while (newH < h + rows * 34) newH <<= 1;
+    while (newH < h + py + shelf + 1) newH <<= 1;
     if (newH > 4096) return {};
     std::vector<uint32_t> combined(size_t(w) * newH, 0);
     // Keep original artwork at the bottom: native font UVs have an inverted V.
@@ -89,20 +104,22 @@ std::unique_ptr<Atlas> Build(Font* font)
     for (auto& glyph : atlas->glyphs) {
         glyph.v0 *= float(h) / newH;
         glyph.v1 *= float(h) / newH;
-        const int icon = IconForCode(glyph.code);
-        if (icon < 0) continue;
-        const unsigned x = (icon % columns) * 34 + 1;
-        const unsigned y = (icon / columns) * 34 + 1;
+        auto region = std::find_if(pack.regions.begin(), pack.regions.end(),
+            [&glyph](const Region& r) { return r.code == glyph.code; });
+        if (region == pack.regions.end()) continue;
+        const unsigned x = positions[glyph.code].first;
+        const unsigned y = positions[glyph.code].second;
         // Native text samples V bottom-to-top (the original font TGA glyphs
         // are inverted too); flip each upright user image on upload.
-        for (unsigned row = 0; row < 32; ++row)
+        for (unsigned row = 0; row < region->height; ++row)
             memcpy(combined.data() + size_t(y + row) * w + x,
-                   icons + icon * 4096 + (31 - row) * 128, 128);
-        glyph.advance = 34;
-        glyph.height = 32;
+                   pack.pixels.data() + size_t(region->y + region->height - 1 - row) *
+                       pack.width + region->x, region->width * 4);
+        glyph.advance = region->advance;
+        glyph.height = region->height;
         glyph.kern = 0;
-        glyph.u0 = float(x) / w; glyph.u1 = float(x + 32) / w;
-        glyph.v0 = 1.0f - float(y + 32) / newH;
+        glyph.u0 = float(x) / w; glyph.u1 = float(x + region->width) / w;
+        glyph.v0 = 1.0f - float(y + region->height) / newH;
         glyph.v1 = 1.0f - float(y) / newH;
         atlas->substitutions[glyph.code] = -1;
     }
@@ -121,7 +138,7 @@ std::unique_ptr<Atlas> Build(Font* font)
         memcpy(static_cast<uint8_t*>(lock.pBits) + row * lock.Pitch,
                combined.data() + size_t(row) * w, w * 4);
     atlas->texture.handle->UnlockRect(0);
-    ETH_INFO("Xbox prompts: font %p atlas %ux%u (%u glyphs)", font, w, newH, font->count);
+    ETH_INFO("Button prompts: font %p atlas %ux%u (%u glyphs)", font, w, newH, font->count);
     return atlas;
 }
 
@@ -138,7 +155,7 @@ struct Scope {
         auto it = atlases.find(f);
         if (it == atlases.end()) {
             it = atlases.emplace(f, Build(f)).first;
-            if (!it->second) ETH_WARN("Xbox prompts: unsupported/unavailable font %p; retaining native text", f);
+            if (!it->second) ETH_WARN("Button prompts: unsupported/unavailable font %p; retaining native text", f);
         }
         if (!it->second) return;
         auto& a = *it->second;
@@ -196,13 +213,6 @@ bool Install()
     if (!GetModuleFileNameA(nullptr, exe, MAX_PATH) ||
         Sha256FileHex(exe) != "49099fef26610e84f94f1aa2dd33aa9e83413ee24ff87fed63a8a98cc4f3daf0")
         return false;
-    auto resource = FindResourceA(g_selfModule, MAKEINTRESOURCEA(310), RT_RCDATA);
-    auto data = resource ? LoadResource(g_selfModule, resource) : nullptr;
-    auto bytes = data ? static_cast<const uint8_t*>(LockResource(data)) : nullptr;
-    const uint32_t header[] = {0x31504258, 32, 32, 22};
-    if (!bytes || SizeofResource(g_selfModule, resource) != 16 + 22 * 4096 ||
-        memcmp(bytes, header, 16)) return false;
-    icons = bytes + 16;
     void* detours[] = {(void*)Init, (void*)Measure, (void*)Queue, (void*)Render};
     void** originals[] = {(void**)&initOriginal, (void**)&measureOriginal,
                           (void**)&queueOriginal, (void**)&renderOriginal};
@@ -215,7 +225,7 @@ bool Install()
         uint8_t actual[6]{};
         const size_t size = i == 3 ? 4 : 6;
         if (!SafeReadBytes(game::A(targets[i]), actual, size) || memcmp(actual, first[i], size)) {
-            ETH_WARN("Xbox prompts: hook fingerprint mismatch at %08x", unsigned(targets[i]));
+            ETH_WARN("Button prompts: hook fingerprint mismatch at %08x", unsigned(targets[i]));
             return false;
         }
     }
@@ -234,19 +244,70 @@ bool Install()
         return false;
     }
     installed = true;
-    ETH_INFO("Xbox prompt font hooks installed");
+    ETH_INFO("Button prompt font hooks installed");
     return true;
 }
 
-bool SetEnabled(const std::string& mod, bool enabled)
+bool Load(const std::string& mod, const std::string& modDirectory,
+          const std::string& relativeTexture, const std::vector<Region>& regions,
+          std::string& error)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex);
-    if (!enabled) { if (owner == mod) owner.clear(); return true; }
-    if (!installed || (!owner.empty() && owner != mod)) return false;
+    error.clear();
+    if (!installed) { error = "Button prompt hooks unavailable"; return false; }
+    if (mod.empty() || (!owner.empty() && owner != mod)) {
+        error = "Button prompts already owned by another mod"; return false;
+    }
+    Pack candidate;
+    try {
+        namespace fs = std::filesystem;
+        fs::path relative(relativeTexture);
+        if (relative.empty() || relative.is_absolute() || relative.has_root_path() ||
+            relativeTexture.find(':') != std::string::npos ||
+            relativeTexture.find('\0') != std::string::npos) {
+            error = "Texture path must be relative to the mod directory"; return false;
+        }
+        const auto root = fs::canonical(modDirectory);
+        const auto path = fs::canonical(root / relative);
+        auto prefix = root.wstring();
+        if (prefix.back() != L'\\') prefix += L'\\';
+        const auto full = path.wstring();
+        if (full.size() <= prefix.size() ||
+            _wcsnicmp(full.c_str(), prefix.c_str(), prefix.size()) != 0) {
+            error = "Texture resolves outside the mod directory"; return false;
+        }
+        const auto size = fs::file_size(path);
+        if (!size || size > 18 * 1024 * 1024) {
+            error = "Texture file exceeds the 18 MiB limit or is empty"; return false;
+        }
+        std::vector<uint8_t> bytes(static_cast<size_t>(size));
+        std::ifstream file(path, std::ios::binary);
+        if (!file.read(reinterpret_cast<char*>(bytes.data()), bytes.size()) ||
+            !DecodeTga(bytes.data(), bytes.size(), candidate.width, candidate.height, candidate.pixels)) {
+            error = "Invalid or unsupported uncompressed TGA"; return false;
+        }
+        if (!ValidateRegions(candidate.width, candidate.height, regions)) {
+            error = "Invalid prompt regions, dimensions, advances or duplicate control codes"; return false;
+        }
+        candidate.regions = regions;
+    } catch (const std::exception& e) {
+        error = std::string("Cannot load prompt texture: ") + e.what(); return false;
+    }
+    // Failed loads preserve the active pack; successful replacement drops every
+    // old font atlas so metrics, substitutions and artwork change together.
+    atlases.clear();
+    pack = std::move(candidate);
     owner = mod;
     return true;
 }
-void Release(const std::string& mod) { SetEnabled(mod, false); }
+void Release(const std::string& mod)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    if (owner != mod) return;
+    owner.clear();
+    atlases.clear();
+    pack = {};
+}
 void Shutdown()
 {
     std::lock_guard<std::recursive_mutex> lock(mutex);
@@ -257,5 +318,6 @@ void Shutdown()
     }
     installed = false;
     atlases.clear();
+    pack = {};
 }
 }

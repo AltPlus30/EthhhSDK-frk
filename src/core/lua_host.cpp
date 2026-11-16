@@ -1,7 +1,7 @@
 #include "lua_host.h"
 #include "util.h"
 #include "log.h"
-#include "xbox_prompts.h"
+#include "button_prompts.h"
 
 extern "C" {
 #include "lua.h"
@@ -194,10 +194,10 @@ bool LoadMod(mods::ModInfo& mod)
     RegisterImGui(m.L);
 
     if (!RunFile(m, mod.entry)) {
-        prompts::Release(mod.id);
         mod.status = "error: " + m.lastError;
         ETH_ERROR("lua[%s]: load failed: %s", mod.id.c_str(), m.lastError.c_str());
         lua_close(m.L);
+        prompts::Release(mod.id);
         return false;
     }
 
@@ -211,10 +211,11 @@ bool LoadMod(mods::ModInfo& mod)
 
 void UnloadMod(const std::string& id)
 {
-    prompts::Release(id);
     auto it = g_mods.find(id);
     if (it == g_mods.end()) return;
     if (it->second.L) lua_close(it->second.L);
+    // Lua finalizers can call APIs; release after they have finished too.
+    prompts::Release(id);
     g_mods.erase(it);
     if (auto* mi = mods::ModManager::Get().Find(id)) {
         mi->loaded = false;
@@ -225,8 +226,8 @@ void UnloadMod(const std::string& id)
 void UnloadAll()
 {
     for (auto& kv : g_mods) {
-        prompts::Release(kv.first);
         if (kv.second.L) lua_close(kv.second.L);
+        prompts::Release(kv.first);
     }
     g_mods.clear();
 }

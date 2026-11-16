@@ -16,6 +16,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $root 'tools\mod-payloads.ps1')
 $dist = Join-Path $root 'build\dist'
 
 $required = @('dinput8.dll', 'EthhhSDK.dll')
@@ -70,25 +71,23 @@ if (Test-Path $stagedMods) {
         $manifestPath = Join-Path $mod.FullName 'mod.json'
         if (-not (Test-Path $manifestPath)) { continue }
         $manifest = Get-Content -Raw $manifestPath | ConvertFrom-Json
-        $entry = if ($manifest.entry) { $manifest.entry } else { 'Mod.dll' }
-        $src = [IO.Path]::GetFullPath((Join-Path $mod.FullName $entry))
-        $srcRoot = [IO.Path]::GetFullPath($mod.FullName).TrimEnd('\') + '\'
-        if (-not $src.StartsWith($srcRoot, [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path $src -PathType Leaf)) {
-            throw "Missing or invalid staged mod entry: $entry"
+        $payloads = @(Get-ModPayloadPaths -ModDir $mod.FullName -Manifest $manifest)
+        foreach ($payload in $payloads) {
+            $src = Join-Path $mod.FullName $payload
+            $relative = "mods\$($mod.Name)\$payload"
+            $dst = Join-Path $GameDir "EthhhSDK\$relative"
+            New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
+            if (Test-Path $dst) {
+                $saved = Join-Path $backup $relative
+                New-Item -ItemType Directory -Path (Split-Path -Parent $saved) -Force | Out-Null
+                Copy-Item $dst $saved -Force
+            }
+            Copy-Item $src $dst -Force
+            Write-Host "installed $relative" -ForegroundColor Green
         }
-        $relative = "mods\$($mod.Name)\$entry"
-        $dst = Join-Path $GameDir "EthhhSDK\$relative"
-        New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
-        if (Test-Path $dst) {
-            $saved = Join-Path $backup $relative
-            New-Item -ItemType Directory -Path (Split-Path -Parent $saved) -Force | Out-Null
-            Copy-Item $dst $saved -Force
-        }
-        Copy-Item $src $dst -Force
         # Do not overwrite a live, potentially user-edited manifest.
         $liveManifest = Join-Path (Join-Path $GameDir "EthhhSDK\mods\$($mod.Name)") 'mod.json'
         if (-not (Test-Path $liveManifest)) { Copy-Item $manifestPath $liveManifest }
-        Write-Host "installed $relative" -ForegroundColor Green
     }
 }
 

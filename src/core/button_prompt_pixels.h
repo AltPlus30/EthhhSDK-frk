@@ -39,19 +39,23 @@ inline bool DecodeTga(const uint8_t* p, size_t size, unsigned& w, unsigned& h,
     return true;
 }
 
-// Native control codes, not DirectInput button numbers. 0x1f stays newline.
-inline int IconForCode(unsigned code)
+struct Region {
+    unsigned code, x, y, width, height, advance;
+};
+
+inline bool ValidateRegions(unsigned width, unsigned height, const std::vector<Region>& regions)
 {
-    if (code >= 1 && code <= 12) return int(code - 1);
-    switch (code) {
-    case 14: return 12; // directional controls
-    case 15: return 0;  // confirm
-    case 16: return 2;  // cancel
-    case 17: return 13; // Berserka
-    case 18: return 15; // Shuriken rage
-    case 19: return 16; // I-Ninja rage
-    case 20: return 14; // Revive
-    default: return -1;
+    if (!width || !height || width > 2048 || height > 2048 ||
+        regions.empty() || regions.size() > 30) return false;
+    uint32_t seen = 0;
+    for (const auto& r : regions) {
+        // NUL and newline are never replaceable.
+        if (r.code < 1 || r.code > 30 || (seen & (1u << r.code)) ||
+            !r.width || !r.height || r.width > 128 || r.height > 128 ||
+            !r.advance || r.advance > 256 || r.x >= width || r.y >= height ||
+            r.width > width - r.x || r.height > height - r.y) return false;
+        seen |= 1u << r.code;
     }
+    return true;
 }
 }
