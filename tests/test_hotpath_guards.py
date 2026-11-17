@@ -126,6 +126,64 @@ class HotPathGuards(unittest.TestCase):
         tick = self.runtime[self.runtime.index("void OnTickCompleted()"):self.runtime.index("void BeginNativeMovementTick()")]
         self.assertLess(tick.index("SampleOrbitCamera()"), tick.index("if (!g_active.load"))
 
+    def test_inventory_text_queue_lease_follows_native_ticks_not_renders(self):
+        begin = self.runtime[self.runtime.index("void BeginNativeMovementTick()"):self.runtime.index("void EndNativeMovementTick()")]
+        self.assertLess(begin.index("g_inventoryText.Clear()"), begin.index("if (!g_cameraHooksReady"))
+        self.assertIn("g_inventoryNativeTick = true", begin)
+        draw = self.runtime[self.runtime.index("void __fastcall UiObjectDrawDetour("):self.runtime.index("const inventory::FontClip* PrepareInventoryClip(")]
+        self.assertIn("g_inventoryNativeTick", draw)
+        self.assertIn("game::A(0x42B597)", draw)
+        self.assertNotIn("g_inGameRender", draw)  # UI labels are queued at 0x43E119.
+        render = self.runtime[self.runtime.index("void __fastcall AppRenderDetour("):self.runtime.index("bool InstallHooks(")]
+        self.assertNotIn("g_inventoryText.Clear()", render)
+        clip = self.runtime[self.runtime.index("const inventory::FontClip* PrepareInventoryClip("):self.runtime.index("void __fastcall HudPulseDetour(")]
+        self.assertIn("g_inventoryText.Matches", clip)
+        self.assertIn("return &copy", clip)
+        self.assertIn("return font", clip)
+        self.assertIn("g_glyphClipOrig(submitted)", clip)
+
+    def test_inventory_hotpaths_cache_only_region_permissions(self):
+        draw = self.runtime[self.runtime.index("void __fastcall UiObjectDrawDetour("):self.runtime.index("void __fastcall HudPulseDetour(")]
+        self.assertNotIn("SafeReadBytes", draw)
+        self.assertNotIn("ExpandClip(", draw)
+        self.assertNotIn("ETH_INFO(", draw)
+        self.assertIn("ReadInventoryTick", draw)
+        self.assertIn("ReadInventoryRender", draw)
+        begin = self.runtime[self.runtime.index("void BeginNativeMovementTick()"):self.runtime.index("void EndNativeMovementTick()")]
+        self.assertIn("g_inventoryTickReads.Reset()", begin)
+        render = self.runtime[self.runtime.index("void __fastcall AppRenderDetour("):self.runtime.index("bool InstallHooks(")]
+        self.assertIn("g_inventoryRenderReads.Reset()", render)
+        self.assertIn("g_inventoryClipBounds.Configure(", render)
+
+    def test_gameplay_hud_groups_and_native_movie_abi_are_scoped(self):
+        policy=(ROOT / "src/core/ethhhpatch_hud.h").read_text(encoding="utf-8")
+        self.assertIn("enum class Kind", policy)
+        self.assertIn("Kind::Health", policy)
+        self.assertIn("Kind::Rage", policy)
+        self.assertIn("Root roots_[6]", policy)
+        self.assertIn("anchor=-geometry[0]*geometry[2]/16", policy)
+        move=self.runtime[self.runtime.index("void __cdecl InventoryMoveScoped("):self.runtime.index("ETH_INVENTORY_THUNK(")]
+        self.assertIn("PositionCall(", move)
+        self.assertIn("HealthLeftAnchor(", move)
+        self.assertIn("AnchorGroupX(", move)
+        movie=self.runtime[self.runtime.index("void __cdecl MovieDrawDetour("):self.runtime.index("int64_t CameraCounter()\n{")]
+        self.assertIn("game::A(0x49A40A)", movie)
+        self.assertIn("SubmitMovie(g_movieDrawOrig,args)", movie)
+        self.assertNotIn("int height", movie)
+        self.assertIn("six-argument native movie ABI", movie)
+
+    def test_attached_clock_clipping_keeps_owner_boundary_scoped(self):
+        policy=(ROOT / "src/core/ethhhpatch_hud.h").read_text(encoding="utf-8")
+        owner=policy[policy.index("static bool AttachedClockOwner"):policy.index("bool Contains(")]
+        self.assertIn('"MissionTimer"',owner)
+        self.assertIn('"MissionCounter"',owner)
+        self.assertIn("game::ReadClassName",owner)
+        membership=policy[policy.index("bool Contains("):policy.index("Root* Slot(")]
+        self.assertIn("depth<4",membership)
+        self.assertIn("entry.kind==Kind::Health && entry.object==parent && entry.self==parentOwner",membership)
+        self.assertIn("!healthParent || !AttachedClockOwner(header[3],read)",membership)
+        self.assertIn("game::ResolveOwnerHandle",membership)
+
     def test_skip_launcher_uses_existing_boot_setting(self):
         ui = (ROOT / "src/core/ui_pages.cpp").read_text(encoding="utf-8")
         sdk = (ROOT / "src/core/sdk.cpp").read_text(encoding="utf-8")

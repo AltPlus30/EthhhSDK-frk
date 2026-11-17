@@ -215,6 +215,39 @@ The active policies also:
 - disable compatibility changes if a later successful Reset no longer matches
   the verified active mode.
 
+### Gameplay HUD and movie widescreen layout
+
+The display patch now percentage-anchors the four inventory parents (darts,
+shurikens, coins/lives) rather than leaving them inside the centered 4:3 canvas.
+The native `Panel` script retains its own reveal timers, pause behavior and
+slide animation. Both its displayed and hidden X positions are mapped to the
+same percentage of the actual viewport; icon/text sizes and child spacing keep
+the existing uniform HUD scale. There is no fixed 1080p pixel compensation.
+
+This is scoped to the verified inventory position call, not every right-hand
+sprite or every `Panel` operation. Restore/failure returns still-owned parents
+to their last native positions; dead handles and foreign position edits are
+not overwritten. Other HUD/menu layouts are unchanged. The user confirmed image
+sliding but reported missing text in the first build. The follow-up expands
+pre-projection glyph clipping only for queued inventory labels, without changing
+shared fonts. After a reported FPS regression, the staged build uses phase-
+scoped protected reads, indexed text provenance and precomputed clip bounds,
+plus a one-shot 300-render timing report. The user reports that the inventory
+performance correction works.
+
+The shared HUD policy now adds the HP bar's percentage-anchored **left edge**
+and the rage diamond/selector's percentage-anchored **parent origin**, with
+separate bounded root slots and the same text clipping/restore protections.
+Movies now use the correct **six-argument cdecl draw ABI**, preserving alpha
+while fitting both axes; the earlier declaration kept the original X scale
+and added an unwanted centering offset. The user reports that the combined
+build looks good and plays well. Follow-up [HP timer clipping](attached-clock-clipping.md)
+and [minimize/restore recovery](display-reset-recovery.md) corrections are
+staged, not live-accepted. [Grade/belt alignment](grade-panel-investigation.md)
+was investigated without changing its rendering or artwork.
+See [combined findings and acceptance checklist](widescreen-hud.md)
+and the [inventory investigation history](inventory-hud.md).
+
 Display hooks for culling, HUD pulse, movie fit and entity submissions are installed lazily
 only when an Apply transaction begins and are removed after restore/failure.
 Mouse orbit and scoped movement heading have an independent hook lifetime,

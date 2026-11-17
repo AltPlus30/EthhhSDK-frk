@@ -170,7 +170,11 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(movie["draw_dispatch"], 0x497D40)
         runtime = (TOOL.parent.parent / "src" / "core" / "ethhhpatch_runtime.cpp").read_text(encoding="utf-8")
         self.assertIn("MovieDrawDetour", runtime)
-        self.assertIn("FitCentered(sourceWidth, sourceHeight", runtime)
+        self.assertIn("FitMovie(args,sourceWidth,sourceHeight", runtime)
+        movie_policy = (TOOL.parent.parent / "src/core/ethhhpatch_movie.h").read_text(encoding="utf-8")
+        self.assertIn("FitCentered(sourceWidth,sourceHeight", movie_policy)
+        self.assertIn("MovieDrawFn = void(__cdecl*)(void*, float, float, float, float, float)", movie_policy)
+        self.assertIn("game::A(0x49A40A)", runtime)
         self.assertIn("kMovieDraw = 0x497D40", runtime)
 
     def test_hud_projection_sites_are_bounded(self):

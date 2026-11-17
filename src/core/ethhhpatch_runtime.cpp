@@ -1,10 +1,14 @@
 #include "ethhhpatch_runtime.h"
 #include "ethhhpatch.h"
 #include "ethhhpatch_display_startup.h"
+#include "ethhhpatch_display_reset.h"
 #include "hooks.h"
 #include "ethhhpatch_runtime_policy.h"
 #include "ethhhpatch_interpolation.h"
 #include "ethhhpatch_entity_reader.h"
+#include "ethhhpatch_inventory.h"
+#include "ethhhpatch_inventory_thunk.h"
+#include "ethhhpatch_movie.h"
 #include "camera_relative_heading.h"
 #include "camera_relative_heading_thunk.h"
 #include "game.h"
@@ -15,6 +19,7 @@
 
 #include <MinHook.h>
 #include <intrin.h>
+#include <type_traits>
 
 namespace eth::patch::runtime {
 void UninstallHooks();
@@ -24,6 +29,13 @@ constexpr uint8_t kWaitBytes[2] = { 0x7C, 0xF2 };
 constexpr uint8_t kZeroTickBytes[2] = { 0x90, 0x90 };
 constexpr uintptr_t kSphereCull = 0x449420;
 constexpr uintptr_t kHudPulse = 0x4483B0;
+constexpr uintptr_t kInventoryMove = 0x41DD10;
+constexpr uintptr_t kInventoryMoveReturn = 0x426063;
+constexpr uintptr_t kUiHandles = 0x519A60;
+constexpr uintptr_t kSpriteObjectVtable = 0x4C8D94;
+constexpr uintptr_t kUiObjectDraw = 0x42BD40;
+constexpr uintptr_t kGlyphClip = 0x4484B0;
+constexpr uintptr_t kGlyphClipReturn = 0x448BE9;
 constexpr uintptr_t kMovieDraw = 0x497D40;
 constexpr uintptr_t kViewRender = 0x43F290;
 constexpr uintptr_t kPrimaryViewReturn = 0x43E230;
@@ -37,13 +49,39 @@ constexpr float kOriginalAspect = 4.0f / 3.0f;
 
 using SphereCullFn = bool(__stdcall*)(const float*, const float*);
 using HudPulseFn = void(__thiscall*)(void*);
-using MovieDrawFn = void(__cdecl*)(void*, float, float, int, float, float, float);
+using InventoryMoveFn = void(__cdecl*)(void*, const inventory::Position*);
+using UiObjectDrawFn = void(__thiscall*)(void*);
+using GlyphClipFn = uint32_t(__cdecl*)(const inventory::FontClip*);
 using ViewRenderFn = void(__thiscall*)(void*);
 using EntitySubmitFn = void(__thiscall*)(void*, void*, void*, const entity::Matrix*);
 using NodeSubmitFn = void(__thiscall*)(void*, void*, const entity::Matrix*, const entity::Matrix*);
 using BuiltinFieldFn = uint32_t(__thiscall*)(void*, void*, void*, uint32_t);
 SphereCullFn g_sphereCullOrig = nullptr;
 HudPulseFn g_hudPulseOrig = nullptr;
+InventoryMoveFn g_inventoryMoveOrig = nullptr;
+inventory::Roots g_inventoryRoots;
+bool g_inventoryAnchored = false;
+unsigned g_hudAnchoredKinds = 0;
+UiObjectDrawFn g_uiObjectDrawOrig = nullptr;
+GlyphClipFn g_glyphClipOrig = nullptr;
+inventory::QueuedText g_inventoryText;
+bool g_inventoryClipMatched = false;
+bool g_inventoryNativeTick = false;
+entity::ReadScope g_inventoryTickReads, g_inventoryRenderReads;
+inventory::ClipBounds g_inventoryClipBounds;
+bool g_inventoryClipLogPending = false;
+struct InventoryProfile {
+    struct Path { uint64_t calls=0, samples=0; int64_t sdk=0, native=0; } ui, glyph;
+    bool active=false;
+    unsigned frames=0;
+    size_t tickQueries=0, renderQueries=0;
+    bool Sample(Path& path, unsigned mask) {
+        if (!active) return false;
+        // Rotate the sampled position each render; fixed 64-glyph strings or
+        // eight-object groups must not repeatedly select the same element.
+        return ((uint32_t(++path.calls)+frames*17u) & mask)==1;
+    }
+} g_inventoryProfile;
 MovieDrawFn g_movieDrawOrig = nullptr;
 ViewRenderFn g_viewRenderOrig = nullptr;
 ViewRenderFn g_appRenderOrig = nullptr;
@@ -74,6 +112,8 @@ std::atomic<bool> g_active{false};
 bool g_startupDisplayAttempted = false;
 DisplayStartupGate g_startupDisplayGate;
 DisplayStartupRecovery g_startupDisplayRecovery;
+DisplayResetRecovery g_displayResetRecovery;
+DisplayStartupGate g_displayResetGate;
 DisplayPlan g_startupRecoveryPlan;
 bool g_startupApplyInFlight = false, g_startupApplyIsRecovery = false;
 std::atomic<float> g_aspect{kOriginalAspect};
@@ -184,6 +224,8 @@ bool ResizeClient(HWND window, int width, int height)
 
 bool StartRollback(const char* reason)
 {
+    g_displayResetRecovery.Cancel();
+    g_displayResetGate.Reset();
     g_startupApplyInFlight = false;
     g_startupDisplayRecovery.Cancel();
     ETH_WARN("EthhhPatch display rollback: %s", reason ? reason : "unspecified");
@@ -256,6 +298,136 @@ bool __stdcall SphereCullDetour(const float* center, const float* radius)
         viewValues[4], viewValues[1]); // View+0x10 tan(FOV/2), View+0x04 far
 }
 
+int64_t CameraCounter();
+bool ReadInventoryTick(uintptr_t address, void* out, size_t bytes)
+{
+    return entity::ReadProtected(g_inventoryTickReads,address,out,bytes);
+}
+bool ReadInventoryRender(uintptr_t address, void* out, size_t bytes)
+{
+    return entity::ReadProtected(g_inventoryRenderReads,address,out,bytes);
+}
+
+void FinishInventoryFrame()
+{
+    if (g_inventoryClipLogPending) {
+        g_inventoryClipLogPending=false;
+        ETH_INFO("EthhhPatch inventory text clipping matched queued inventory label");
+    }
+    auto& p=g_inventoryProfile;
+    if (!p.active) return;
+    p.renderQueries+=g_inventoryRenderReads.Queries();
+    if (++p.frames<300) return;
+    p.active=false;
+    const double tickMs=g_counterFrequency ? 1000.0/double(g_counterFrequency) : 0;
+    const double uiMs=p.ui.samples ? tickMs*p.ui.sdk/p.ui.samples*p.ui.calls/p.frames : 0;
+    const double glyphMs=p.glyph.samples ? tickMs*p.glyph.sdk/p.glyph.samples*p.glyph.calls/p.frames : 0;
+    const double nativeUs=p.glyph.samples ? tickMs*1000*p.glyph.native/p.glyph.samples : 0;
+    ETH_INFO("EthhhPatch inventory profile (300 renders; sampled, excludes native UI draw): "
+        "SDK UI %.3f ms/render, glyph %.3f ms/render; native clip %.3f us/call; "
+        "UI %llu calls, glyph %llu calls; memory queries tick %zu/render %zu",
+        uiMs,glyphMs,nativeUs,p.ui.calls,p.glyph.calls,p.tickQueries,p.renderQueries);
+}
+
+void __cdecl InventoryMoveScoped(void* self, const inventory::Position* args, uintptr_t caller, uintptr_t nextPC)
+{
+    inventory::Position native{};
+    inventory::Root root{};
+    const float aspect = g_aspect.load(std::memory_order_relaxed);
+    inventory::Root* slot = nullptr;
+    inventory::Kind kind = inventory::Kind::Unrelated;
+    float localAnchor = 0;
+    if (g_active.load(std::memory_order_relaxed) && g_inventoryNativeTick && aspect > kOriginalAspect &&
+        caller == game::A(kInventoryMoveReturn) &&
+        (kind=inventory::PositionCall(nextPC,game::A(kInventoryMove),ReadInventoryTick))!=inventory::Kind::Unrelated &&
+        ReadInventoryTick(uintptr_t(args), &native, sizeof(native)) &&
+        std::isfinite(native.x) && std::isfinite(native.y) &&
+        inventory::Identity(uint32_t(uintptr_t(self)), native.handle, game::A(kUiHandles),
+            game::A(kSpriteObjectVtable), root, ReadInventoryTick)) {
+        root.kind=kind;
+        if (kind!=inventory::Kind::Health || inventory::HealthLeftAnchor(root,localAnchor,ReadInventoryTick))
+            slot = g_inventoryRoots.Slot(root, game::A(kUiHandles), game::A(kSpriteObjectVtable), ReadInventoryTick);
+    }
+    if (slot) {
+        root.native = native;
+        root.installed = native;
+        root.installed.x = inventory::AnchorGroupX(native.x,localAnchor,aspect);
+        // Copy arguments only: never edit Panel's animation registers/bytecode.
+        if (g_inventoryMoveOrig) g_inventoryMoveOrig(self, &root.installed);
+        *slot = root;
+        if (!g_inventoryAnchored) {
+            g_inventoryAnchored = true;
+            g_inventoryProfile={}; g_inventoryProfile.active=true;
+        }
+        const unsigned bit=1u<<unsigned(kind);
+        if (!(g_hudAnchoredKinds&bit)) {
+            g_hudAnchoredKinds|=bit;
+            const char* name=kind==inventory::Kind::Health ? "HP left-edge" :
+                kind==inventory::Kind::Rage ? "rage" : "inventory";
+            ETH_INFO("EthhhPatch %s percentage anchoring matched Panel (aspect %.5f)",name,aspect);
+        }
+    } else if (g_inventoryMoveOrig) g_inventoryMoveOrig(self, args);
+}
+
+ETH_INVENTORY_THUNK(InventoryMoveDetour, InventoryMoveScoped)
+
+void __fastcall UiObjectDrawDetour(void* self, void*)
+{
+    const bool sample=g_inventoryProfile.Sample(g_inventoryProfile.ui,7);
+    const int64_t start=sample ? CameraCounter() : 0;
+    inventory::QueueSnapshot queues{};
+    if (g_active.load(std::memory_order_relaxed) && g_inventoryNativeTick &&
+        uintptr_t(_ReturnAddress()) == game::A(0x42B597) &&
+        g_inventoryRoots.Contains(uintptr_t(self), game::A(kUiHandles),
+            game::A(kSpriteObjectVtable), ReadInventoryTick))
+        queues.Capture(game::A(0x502D9C), ReadInventoryTick);
+    const int64_t before=sample ? CameraCounter() : 0;
+    if (g_uiObjectDrawOrig) g_uiObjectDrawOrig(self);
+    const int64_t after=sample ? CameraCounter() : 0;
+    // Font queueing itself does not clip. Track only the entries appended by
+    // this verified HUD object's draw; shared fonts remain untouched.
+    g_inventoryText.Collect(queues, ReadInventoryTick);
+    if (sample) {
+        g_inventoryProfile.ui.sdk+=before-start+CameraCounter()-after;
+        ++g_inventoryProfile.ui.samples;
+    }
+}
+
+const inventory::FontClip* PrepareInventoryClip(const inventory::FontClip* font, uintptr_t caller,
+    uintptr_t string, inventory::FontClip& copy)
+{
+    if (g_active.load(std::memory_order_relaxed) && g_inGameRender &&
+        caller == game::A(kGlyphClipReturn) &&
+        g_inventoryText.Matches(uintptr_t(font), string, ReadInventoryRender) &&
+        ReadInventoryRender(uintptr_t(font), &copy, sizeof(copy)) &&
+        g_inventoryClipBounds.Apply(copy)) {
+        if (!g_inventoryClipMatched) {
+            g_inventoryClipMatched = true;
+            g_inventoryClipLogPending = true;
+        }
+        return &copy;
+    }
+    return font;
+}
+
+uint32_t __cdecl GlyphClipScoped(const inventory::FontClip* font, uintptr_t caller, uintptr_t string)
+{
+    const bool sample=g_inventoryProfile.Sample(g_inventoryProfile.glyph,63);
+    const int64_t start=sample ? CameraCounter() : 0;
+    inventory::FontClip copy{};
+    const auto* submitted=PrepareInventoryClip(font,caller,string,copy);
+    const int64_t before=sample ? CameraCounter() : 0;
+    const uint32_t result=g_glyphClipOrig ? g_glyphClipOrig(submitted) : 0;
+    if (sample) {
+        const int64_t end=CameraCounter();
+        auto& p=g_inventoryProfile.glyph;
+        p.sdk+=before-start; p.native+=end-before; ++p.samples;
+    }
+    return result;
+}
+
+ETH_INVENTORY_CLIP_THUNK(GlyphClipDetour, GlyphClipScoped)
+
 void __fastcall HudPulseDetour(void* self, void*)
 {
     if (g_active.load(std::memory_order_relaxed) && self) {
@@ -272,10 +444,12 @@ void __fastcall HudPulseDetour(void* self, void*)
     if (g_hudPulseOrig) g_hudPulseOrig(self);
 }
 
-void __cdecl MovieDrawDetour(void* surface, float x, float y, int height,
+void __cdecl MovieDrawDetour(void* surface, float x, float y,
     float scaleX, float scaleY, float alpha)
 {
-    if (g_active.load(std::memory_order_relaxed) && surface) {
+    MovieDrawArgs args{surface,x,y,scaleX,scaleY,alpha};
+    if (g_active.load(std::memory_order_relaxed) && surface &&
+        uintptr_t(_ReturnAddress())==game::A(0x49A40A)) {
         int sourceWidth = 0, sourceHeight = 0;
         __try {
             sourceWidth = *(int*)((uint8_t*)surface + 0x14);
@@ -283,17 +457,11 @@ void __cdecl MovieDrawDetour(void* surface, float x, float y, int height,
         } __except (EXCEPTION_EXECUTE_HANDLER) { sourceWidth = sourceHeight = 0; }
         const unsigned targetWidth = g_targetWidth.load(std::memory_order_relaxed);
         const unsigned targetHeight = g_targetHeight.load(std::memory_order_relaxed);
-        if (sourceWidth > 0 && sourceWidth <= 8192 && sourceHeight > 0 && sourceHeight <= 8192 &&
-            targetWidth && targetHeight) {
-            const AspectFit fit = FitCentered(sourceWidth, sourceHeight, (int)targetWidth, (int)targetHeight);
-            if (fit.scale > 0) {
-                scaleX = scaleY = fit.scale;
-                x = fit.x; y = fit.y;
-            }
-        }
+        FitMovie(args,sourceWidth,sourceHeight,int(targetWidth),int(targetHeight));
     }
-    if (g_movieDrawOrig) g_movieDrawOrig(surface, x, y, height, scaleX, scaleY, alpha);
+    SubmitMovie(g_movieDrawOrig,args);
 }
+static_assert(std::is_same_v<decltype(&MovieDrawDetour), MovieDrawFn>, "six-argument native movie ABI");
 
 int64_t CameraCounter()
 {
@@ -805,6 +973,8 @@ void __fastcall AppRenderDetour(void* self, void*)
 {
     if (g_inGameRender) { if (g_appRenderOrig) g_appRenderOrig(self); return; }
     g_inGameRender = true;
+    g_inventoryRenderReads.Reset();
+    g_inventoryClipBounds.Configure(g_aspect.load(std::memory_order_relaxed));
     g_primaryViewPass.Reset();
     g_entityFrameAlpha = g_active.load(std::memory_order_relaxed) ? CurrentRenderFraction() : 1;
     g_entityFrameTick = game::TickCount();
@@ -812,7 +982,8 @@ void __fastcall AppRenderDetour(void* self, void*)
     // Includes all queue building, scene drawing, EndScene and Present paths,
     // including early returns and exception unwinding. Never leak into Fn_Tick.
     __try { if (g_appRenderOrig) g_appRenderOrig(self); }
-    __finally { RestoreRenderCamera(); FinishEntityFrame(); g_entityFrameAlpha = 1; g_inGameRender = false; }
+    __finally { RestoreRenderCamera(); FinishEntityFrame(); FinishInventoryFrame();
+        g_entityFrameAlpha = 1; g_inGameRender = false; }
 }
 } // namespace
 
@@ -848,17 +1019,50 @@ bool InstallHooks(bool cameraOnly)
         !SafeReadBytes(game::A(kNodeSubmit),current,sizeof(nodeBytes)) || memcmp(current,nodeBytes,sizeof(nodeBytes)))) {
         ETH_ERROR("EthhhPatch refused entity hooks: render entry bytes changed"); return false;
     }
+    const uint8_t inventoryEntry[] = {0x8B,0x54,0x24,0x08,0x8B,0x0A,0x8B,0xC1};
+    const uint8_t nativeCall[] = {0x83,0xC6,0x04,0xFF,0xD0}; // advance ESI, cdecl call eax
+    const uint8_t uiDrawEntry[] = {0x83,0xEC,0x1C,0xA1};
+    const uint8_t clipEntry[] = {0x83,0xEC,0x0C,0x8B,0x44,0x24,0x10};
+    const uint8_t clipCall[] = {0xE8,0xC7,0xF8,0xFF,0xFF};
+    const uint8_t movieEntry[] = {0x8B,0x44,0x24,0x04,0x85,0xC0,0x74,0x15};
+    const uint8_t movieCall[] = {0xE8,0x36,0xD9,0xFF,0xFF};
+    const uint8_t movieCleanup[] = {0x83,0xC4,0x18}; // six cdecl arguments
+    if (!cameraOnly && (!SafeReadBytes(game::A(kInventoryMove), current, sizeof(inventoryEntry)) ||
+        memcmp(current, inventoryEntry, sizeof(inventoryEntry)) ||
+        !SafeReadBytes(game::A(kInventoryMoveReturn - 5), current, sizeof(nativeCall)) ||
+        memcmp(current, nativeCall, sizeof(nativeCall)))) {
+        ETH_ERROR("EthhhPatch refused inventory hook: native position contract changed"); return false;
+    }
+    if (!cameraOnly && (!SafeReadBytes(game::A(kUiObjectDraw), current, sizeof(uiDrawEntry)) ||
+        memcmp(current, uiDrawEntry, sizeof(uiDrawEntry)) ||
+        !SafeReadBytes(game::A(kGlyphClip), current, sizeof(clipEntry)) ||
+        memcmp(current, clipEntry, sizeof(clipEntry)) ||
+        !SafeReadBytes(game::A(kGlyphClipReturn-5), current, sizeof(clipCall)) ||
+        memcmp(current, clipCall, sizeof(clipCall)))) {
+        ETH_ERROR("EthhhPatch refused inventory text hook: draw/clip contract changed"); return false;
+    }
+    if (!cameraOnly && (!SafeReadBytes(game::A(kMovieDraw),current,sizeof(movieEntry)) ||
+        memcmp(current,movieEntry,sizeof(movieEntry)) ||
+        !SafeReadBytes(game::A(0x49A405),current,sizeof(movieCall)) ||
+        memcmp(current,movieCall,sizeof(movieCall)) ||
+        !SafeReadBytes(game::A(0x49A410),current,sizeof(movieCleanup)) ||
+        memcmp(current,movieCleanup,sizeof(movieCleanup)))) {
+        ETH_ERROR("EthhhPatch refused movie hook: six-argument draw contract changed"); return false;
+    }
     struct Hook { uintptr_t va; void* detour; void** original; };
     const Hook hooks[] = {
         {kSphereCull,(void*)&SphereCullDetour,(void**)&g_sphereCullOrig},
         {kHudPulse,(void*)&HudPulseDetour,(void**)&g_hudPulseOrig},
+        {kInventoryMove,(void*)&InventoryMoveDetour,(void**)&g_inventoryMoveOrig},
+        {kUiObjectDraw,(void*)&UiObjectDrawDetour,(void**)&g_uiObjectDrawOrig},
+        {kGlyphClip,(void*)&GlyphClipDetour,(void**)&g_glyphClipOrig},
         {kMovieDraw,(void*)&MovieDrawDetour,(void**)&g_movieDrawOrig},
         {kViewRender,(void*)&ViewRenderDetour,(void**)&g_viewRenderOrig},
         {kAppRender,(void*)&AppRenderDetour,(void**)&g_appRenderOrig},
         {kEntitySubmit,(void*)&EntitySubmitDetour,(void**)&g_entitySubmitOrig},
         {kNodeSubmit,(void*)&NodeSubmitDetour,(void**)&g_nodeSubmitOrig},
         {kBuiltinFieldGetter,(void*)&BuiltinFieldDetour,(void**)&g_builtinFieldOrig}};
-    const Hook* created[8]{};
+    const Hook* created[11]{};
     size_t createdCount = 0;
     bool enabled = true;
     for (const auto& hook : hooks) {
@@ -893,12 +1097,15 @@ void UninstallHooks()
     if (!g_hooksReady.exchange(false)) return;
     DeactivateRenderSplit();
     void* targets[] = { (void*)game::A(kSphereCull), (void*)game::A(kHudPulse), (void*)game::A(kMovieDraw),
-        (void*)game::A(kEntitySubmit), (void*)game::A(kNodeSubmit) };
+        (void*)game::A(kEntitySubmit), (void*)game::A(kNodeSubmit), (void*)game::A(kInventoryMove),
+        (void*)game::A(kUiObjectDraw), (void*)game::A(kGlyphClip) };
     for (void* target : targets) {
         MH_DisableHook(target);
         MH_RemoveHook(target);
     }
     g_sphereCullOrig = nullptr; g_hudPulseOrig = nullptr; g_movieDrawOrig = nullptr;
+    g_inventoryMoveOrig = nullptr;
+    g_uiObjectDrawOrig = nullptr; g_glyphClipOrig = nullptr;
     g_entitySubmitOrig = nullptr; g_nodeSubmitOrig = nullptr;
     ETH_INFO("EthhhPatch compatibility hooks removed");
 }
@@ -940,6 +1147,15 @@ bool ActivateRenderSplit(float aspect, unsigned width, unsigned height, int targ
 void DeactivateRenderSplit()
 {
     if (!g_active.exchange(false)) return;
+    g_inventoryRoots.Restore(game::A(kUiHandles), game::A(kSpriteObjectVtable), SafeReadBytes,
+        [](uint32_t self, const inventory::Position& position) {
+            if (g_inventoryMoveOrig) g_inventoryMoveOrig(reinterpret_cast<void*>(self), &position);
+        });
+    g_inventoryAnchored = false;
+    g_hudAnchoredKinds = 0;
+    g_inventoryClipMatched = false; g_inventoryNativeTick = false; g_inventoryText.Clear();
+    g_inventoryProfile={}; g_inventoryClipLogPending=false;
+    g_inventoryTickReads.Reset(); g_inventoryRenderReads.Reset();
     if (!ExactCodeWrite(game::A(kZeroTickWaitBranch), kZeroTickBytes, kWaitBytes))
         ETH_ERROR("EthhhPatch could not restore original wait branch bytes");
     g_aspect.store(kOriginalAspect);
@@ -955,6 +1171,30 @@ void DeactivateRenderSplit()
 
 void OnTickCompleted()
 {
+    // Resume only on the game/window thread after successful presentation has
+    // settled. Keep the original transaction/baseline: RequestDisplayPlan here
+    // would accidentally replace Restore's baseline with the transient mode.
+    if (g_displayResetRecovery.Pending()) {
+        HWND window = (HWND)game::GameHwnd();
+        const int64_t counter = CameraCounter();
+        DWORD process = 0;
+        if (!window || IsIconic(window) || GetForegroundWindow() != window || input::OverlayOpen()) {
+            g_displayResetGate.Reset();
+        } else if (counter && counter >= g_movieUntilCounter.load() &&
+            GetWindowThreadProcessId(window, &process) == GetCurrentThreadId() &&
+            g_displayResetGate.Ready(double(counter) / g_counterFrequency)) {
+            const auto status = ReadApplyStatus();
+            g_displayResetRecovery.Take(); // one request, even if it fails
+            if (status.state == ApplyState::Active) {
+                ETH_INFO("EthhhPatch transient window Reset: requesting original verified client size once");
+                if (!ConfigureDisplay(status.requested.windowed, status.requested.width,
+                    status.requested.height, status.targetHz) ||
+                    !ResizeClient(window, status.requested.width, status.requested.height)) {
+                    StartRollback("transient window Reset recovery request failed");
+                }
+            }
+        }
+    }
     // Tick runs on the game/window thread. Wait for Reset observation and input
     // hooks, not merely a device pointer discovered by the watcher thread.
     if (!g_startupDisplayAttempted && hooks::D3DHooked() && hooks::WndProcHooked()) {
@@ -1021,6 +1261,12 @@ void OnTickCompleted()
 
 void BeginNativeMovementTick()
 {
+    // Native 0x448450 clears font queues at the start of each tick; UI-object
+    // text is queued later at 0x43E119, not inside App_render_step. Keep its
+    // provenance through all zero-tick renders until the NEXT native tick.
+    g_inventoryText.Clear();
+    g_inventoryTickReads.Reset();
+    g_inventoryNativeTick = true;
     if (!g_cameraHooksReady.load(std::memory_order_relaxed)) { g_headingPolicy.Invalidate(); return; }
     const int64_t counter = CameraCounter();
     movement::Gates gates;
@@ -1037,10 +1283,17 @@ void BeginNativeMovementTick()
     g_headingPolicy.Begin(game::TickCount(), counter ? double(counter) / g_counterFrequency : 0, gates);
 }
 
-void EndNativeMovementTick() { g_headingPolicy.End(); }
+void EndNativeMovementTick() {
+    if (g_inventoryProfile.active) g_inventoryProfile.tickQueries+=g_inventoryTickReads.Queries();
+    g_inventoryNativeTick = false; g_headingPolicy.End();
+}
 
 void OnGamePresentResult(bool success)
 {
+    if (g_displayResetRecovery.Pending()) {
+        const int64_t counter = CameraCounter();
+        g_displayResetGate.Present(counter ? double(counter) / g_counterFrequency : 0, success);
+    }
     if (g_startupDisplayAttempted) return;
     const int64_t counter = CameraCounter();
     g_startupDisplayGate.Present(counter ? double(counter) / g_counterFrequency : 0, success);
@@ -1066,6 +1319,7 @@ void BeforeGamePresent()
 
 void Shutdown()
 {
+    g_displayResetRecovery.Cancel();
     DeactivateRenderSplit(); UninstallHooks();
     RestoreRenderCamera(); ReleaseOrbitCapture();
     g_mouseLookEnabled = false;
@@ -1102,6 +1356,8 @@ bool AdjustHudProjection(uintptr_t returnAddress, const D3DMATRIX* input, D3DMAT
 
 bool RequestDisplayPlan(const DisplayPlan& plan, int monitorHz, std::string& error)
 {
+    g_displayResetRecovery.Cancel();
+    g_displayResetGate.Reset();
     // A manual request supersedes a queued startup recovery.
     if (!g_startupApplyInFlight) g_startupDisplayRecovery.Cancel();
     error.clear();
@@ -1167,6 +1423,8 @@ bool RequestDisplayPlan(const DisplayPlan& plan, int monitorHz, std::string& err
 
 bool RequestRestore(std::string& error)
 {
+    g_displayResetRecovery.Cancel();
+    g_displayResetGate.Reset();
     g_startupDisplayRecovery.Cancel();
     error.clear();
     HWND window = (HWND)game::GameHwnd();
@@ -1193,6 +1451,7 @@ bool ForgetStartupDisplay()
 void OnResetResult(const D3DPRESENT_PARAMETERS* parameters, HRESULT result)
 {
     g_startupDisplayGate.Reset();
+    g_displayResetGate.Reset();
     D3DPRESENT_PARAMETERS observed{};
     // Verify the swap chain that actually exists, not only the pre-Reset request.
     if (SUCCEEDED(result)) {
@@ -1252,10 +1511,40 @@ void OnResetResult(const D3DPRESENT_PARAMETERS* parameters, HRESULT result)
             g_applyStatus.detail += matches ? "; previous display restored exactly" : "; rollback Reset failed or mismatched";
         }
         UninstallHooks();
-    } else if (status.state == ApplyState::Active && SUCCEEDED(result) && parameters) {
-        if (!AppliedModeMatches(status.requested, status.targetHz, parameters->BackBufferWidth,
+    } else if (status.state == ApplyState::Active) {
+        const bool matches = SUCCEEDED(result) && parameters &&
+            AppliedModeMatches(status.requested, status.targetHz, parameters->BackBufferWidth,
             parameters->BackBufferHeight, parameters->Windowed != FALSE,
-            parameters->FullScreen_RefreshRateInHz)) {
+            parameters->FullScreen_RefreshRateInHz);
+        HWND window = (HWND)game::GameHwnd();
+        RECT outer{}, client{};
+        const bool haveFrame = window && GetWindowRect(window, &outer) && GetClientRect(window, &client);
+        const bool frameMismatch = parameters && haveFrame && WindowFrameResetMismatch(status.requested,
+            parameters->BackBufferWidth, parameters->BackBufferHeight, parameters->Windowed != FALSE,
+            parameters->FullScreen_RefreshRateInHz,
+            (outer.right - outer.left) - (client.right - client.left),
+            (outer.bottom - outer.top) - (client.bottom - client.top));
+        const auto action = g_displayResetRecovery.Observe(SUCCEEDED(result), parameters != nullptr,
+            matches, window && IsIconic(window),
+            FAILED(result) && parameters && parameters->Windowed &&
+                !parameters->BackBufferWidth && !parameters->BackBufferHeight,
+            frameMismatch);
+        if (action == DisplayResetRecovery::Action::Suspend ||
+            action == DisplayResetRecovery::Action::Recover) {
+            if (g_active.load())
+                ETH_WARN("EthhhPatch Reset interrupted verified display; suspending compatibility without forgetting plan");
+            DeactivateRenderSplit();
+            std::lock_guard<std::mutex> lock(g_applyMutex);
+            g_applyStatus.detail = action == DisplayResetRecovery::Action::Recover ?
+                "transient window-frame Reset; waiting to recover the exact verified mode" :
+                "device Reset interrupted; compatibility suspended until exact mode verification";
+            return;
+        }
+        const bool resuming = !g_active.load();
+        if (action == DisplayResetRecovery::Action::Reject ||
+            (!g_active.load() && !ActivateRenderSplit(
+                (float)Aspect(status.requested.width, status.requested.height),
+                parameters->BackBufferWidth, parameters->BackBufferHeight, status.targetHz))) {
             ETH_WARN("EthhhPatch active display replaced by a later game Reset; disabling compatibility policies");
             const int64_t counter = CameraCounter();
             if (g_startupDisplayRecovery.Queue(counter ? double(counter) / g_counterFrequency : 0)) {
@@ -1273,9 +1562,13 @@ void OnResetResult(const D3DPRESENT_PARAMETERS* parameters, HRESULT result)
             }
             UninstallHooks();
         } else {
+            if (resuming)
+                ETH_INFO("EthhhPatch exact display restored; compatibility resumed with original Restore baseline");
             g_targetWidth.store(parameters->BackBufferWidth);
             g_targetHeight.store(parameters->BackBufferHeight);
             g_nextPresentCounter = 0;
+            std::lock_guard<std::mutex> lock(g_applyMutex);
+            g_applyStatus.detail = "display Reset matched; render split/culling/HUD timing active";
         }
     }
 }
@@ -1295,6 +1588,7 @@ void SetExternalCameraOwned(bool owned)
 void NotifyMoviePresent()
 {
     g_startupDisplayGate.Reset();
+    g_displayResetGate.Reset();
     const int64_t counter = CameraCounter();
     if (counter) g_movieUntilCounter.store(counter + g_counterFrequency / 2);
     if (g_cameraHooksReady.load() && !g_externalCameraOwned.load()) {

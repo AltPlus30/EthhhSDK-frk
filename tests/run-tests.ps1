@@ -98,6 +98,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Native SHA-256 file hashing regression failed.
 if ($LASTEXITCODE -ne 0) { throw 'EthhhPatch policy regression failed.' }
 & "$out\eth_ethhhpatch_projection_tests.exe"
 if ($LASTEXITCODE -ne 0) { throw 'EthhhPatch projection regression failed.' }
+& $cmake --build $build --config $Configuration --target eth_ethhhpatch_inventory_tests
+if ($LASTEXITCODE -ne 0) { throw 'Inventory HUD test build failed.' }
+& "$out\eth_ethhhpatch_inventory_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Inventory HUD/Win32 ABI regression failed.' }
+& $cmake --build $build --config $Configuration --target eth_inventory_performance_tests
+if ($LASTEXITCODE -ne 0) { throw 'Inventory performance test build failed.' }
+& "$out\eth_inventory_performance_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Inventory hot-path safety/performance regression failed.' }
 & "$out\eth_ethhhpatch_camera_tests.exe"
 if ($LASTEXITCODE -ne 0) { throw 'EthhhPatch camera regression failed.' }
 & "$out\eth_ethhhpatch_interpolation_tests.exe"

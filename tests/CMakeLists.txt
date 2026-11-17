@@ -55,7 +55,7 @@ set_target_properties(eth_pestcontrol_runtime_tests PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tests/interop"
   RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")
 
-foreach(name IN ITEMS strat_identity ethhhpatch_policy ethhhpatch_projection ethhhpatch_camera ethhhpatch_interpolation ethhhpatch_entity ethhhpatch_lens movement_input mouse_attack camera_relative_heading pestcontrol)
+foreach(name IN ITEMS strat_identity ethhhpatch_policy ethhhpatch_projection ethhhpatch_camera ethhhpatch_interpolation ethhhpatch_entity ethhhpatch_lens ethhhpatch_inventory movement_input mouse_attack camera_relative_heading pestcontrol)
   if(name STREQUAL "strat_identity")
     set(test_source StratIdentityTests.cpp)
   elseif(name STREQUAL "ethhhpatch_policy")
@@ -72,6 +72,8 @@ foreach(name IN ITEMS strat_identity ethhhpatch_policy ethhhpatch_projection eth
     set(test_source MouseAttackTests.cpp)
   elseif(name STREQUAL "ethhhpatch_lens")
     set(test_source EthhhPatchLensTests.cpp)
+  elseif(name STREQUAL "ethhhpatch_inventory")
+    set(test_source EthhhPatchInventoryTests.cpp)
   elseif(name STREQUAL "camera_relative_heading")
     set(test_source CameraRelativeHeadingTests.cpp)
   elseif(name STREQUAL "pestcontrol")
@@ -113,6 +115,13 @@ set_target_properties(eth_sha256_tests PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")
 
 # The same VirtualQuery/SEH reader as the DLL, on isolated VirtualAlloc fixtures.
+add_executable(eth_inventory_performance_tests InventoryPerformanceTests.cpp ${ETH_ROOT}/src/core/util.cpp)
+target_include_directories(eth_inventory_performance_tests PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/imgui)
+target_link_libraries(eth_inventory_performance_tests PRIVATE bcrypt.lib user32.lib)
+set_target_properties(eth_inventory_performance_tests PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tests/interop"
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")
+
 add_executable(eth_entity_performance_tests EthhhPatchEntityPerformanceTests.cpp ${ETH_ROOT}/src/core/util.cpp)
 target_include_directories(eth_entity_performance_tests PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/imgui)
 target_link_libraries(eth_entity_performance_tests PRIVATE bcrypt.lib user32.lib)

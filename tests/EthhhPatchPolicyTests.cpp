@@ -1,5 +1,6 @@
 #include "ethhhpatch_policy.h"
 #include "ethhhpatch_display_startup.h"
+#include "ethhhpatch_display_reset.h"
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -83,5 +84,55 @@ int main()
     recovery.Arm(50);
     recovery.Cancel();
     Check(!recovery.Pending() && !recovery.Queue(51), "manual Apply/Restore cancels automatic recovery");
+    DisplayPlan restoredWindow{1280,720,0,true};
+    Check(WindowFrameResetMismatch(restoredWindow,1274,691,true,0,6,29),
+        "installed log: 1280x720 client reused as outer yields measured 1274x691");
+    Check(!WindowFrameResetMismatch(restoredWindow,1274,691,true,0,8,31) &&
+        !WindowFrameResetMismatch(restoredWindow,1274,691,false,60,6,29) &&
+        !WindowFrameResetMismatch(restoredWindow,1274,691,true,60,6,29) &&
+        !WindowFrameResetMismatch(restoredWindow,800,600,true,0,6,29) &&
+        !WindowFrameResetMismatch(restoredWindow,1280,720,true,0,0,0) &&
+        !WindowFrameResetMismatch(fullscreen,1914,1051,true,0,6,29),
+        "unrelated dimensions, frame metrics, mode kinds and refresh cannot authorize recovery");
+    DisplayResetRecovery reset;
+    using Action = DisplayResetRecovery::Action;
+    Check(reset.Observe(true,true,false,false,false,true)==Action::Reject && !reset.Pending(),
+        "frame deficit without an interruption is not sufficient evidence");
+    Check(reset.Observe(false,true,false,false,true,false)==Action::Suspend,
+        "failed zero-sized Reset suspends compatibility without forgetting transaction");
+    Check(reset.Observe(true,true,false,false,false,true)==Action::Recover && reset.Pending(),
+        "logged minimize sequence queues exact recovery");
+    Check(reset.Observe(true,true,false,false,false,true)==Action::Recover,
+        "duplicate native Reset retains one queued request");
+    reset.Take();
+    Check(!reset.Pending() && reset.Observe(false,true,false,false,true,false)==Action::Suspend &&
+        reset.Observe(true,true,false,false,false,true)==Action::Reject,
+        "failed recovery cannot loop even across more zero-sized failures");
+    reset.Observe(false,true,false,true,false,false);
+    Check(reset.Observe(true,true,false,true,false,false)==Action::Suspend,
+        "successful minimized transient is not accepted or rejected as a real mode");
+    Check(reset.Observe(true,true,true,false,false,false)==Action::Resume && !reset.Pending(),
+        "exact restored swap chain reactivates without forcing another display request");
+    reset.Observe(false,true,false,false,true,false);
+    Check(reset.Observe(true,true,false,false,false,false)==Action::Reject,
+        "unrelated successful mode after device loss still fails closed");
+    reset.Observe(false,true,false,false,true,false);
+    reset.Observe(true,true,false,false,false,true);
+    reset.Cancel();
+    Check(!reset.Pending() && reset.Observe(true,true,false,false,false,true)==Action::Reject,
+        "manual Apply/Restore cancellation prevents queued recovery from overriding user");
+    Check(reset.Observe(true,false,false,false,false,false)==Action::Suspend,
+        "unavailable actual swap-chain parameters cannot verify or discard a plan");
+    Check(reset.Observe(true,true,true,false,false,false)==Action::Resume,
+        "known exact swap-chain result resumes after unavailable evidence");
+    // Each completed exact restoration permits a new, independent minimize cycle.
+    for (int i=0;i<3;++i) {
+        reset.Observe(false,true,false,false,true,false);
+        Check(reset.Observe(true,true,false,false,false,true)==Action::Recover,
+            "repeated minimize cycles independently recover");
+        reset.Take();
+        Check(reset.Observe(true,true,true,false,false,false)==Action::Resume,
+            "only exact result completes recovery");
+    }
     printf("PASS EthhhPatch policy: %d assertions (prototype NOT installed in App_Run)\n",checks);
 }
