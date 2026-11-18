@@ -50,6 +50,33 @@ inline float HudHorizontalScale(float actualAspect, float authoredAspect = 4.0f 
     return authoredAspect / actualAspect;
 }
 
+enum class AuthoredHudSpace { Flat, ModelOverlay };
+
+// Called only for the verified HUD projection submissions. The separate
+// 640x480 model-overlay pass (grades) must share the 2D artwork's containment.
+// Reject other/custom projections; never edit native world/object transforms.
+inline bool ContainAuthoredHudProjection(float* matrix, AuthoredHudSpace space, float aspect)
+{
+    const float scale=HudHorizontalScale(aspect);
+    if (!matrix || !(scale>0) || !std::isfinite(scale) ||
+        (space!=AuthoredHudSpace::Flat && space!=AuthoredHudSpace::ModelOverlay)) return false;
+    for (unsigned i=0;i<16;++i) {
+        if (!std::isfinite(matrix[i])) return false;
+        float expected=i%5==0 ? 1.f : 0.f;
+        float epsilon=1e-6f;
+        if (space==AuthoredHudSpace::ModelOverlay) {
+            // Native 0x45EDA3: OrthoLH(640,480,0.1,1600).
+            expected=i==0 ? 2.f/640 : i==5 ? 2.f/480 :
+                i==10 ? 1.f/(1600.f-.1f) : i==14 ? -.1f/(1600.f-.1f) :
+                i==15 ? 1.f : 0.f;
+            epsilon=std::abs(expected)*1e-5f+1e-8f;
+        }
+        if (std::abs(matrix[i]-expected)>epsilon) return false;
+    }
+    matrix[0]*=scale;
+    return true;
+}
+
 struct AspectFit { float x = 0, y = 0, scale = 0; };
 inline AspectFit FitCentered(int sourceWidth, int sourceHeight, int targetWidth, int targetHeight)
 {

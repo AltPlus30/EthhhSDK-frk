@@ -183,7 +183,10 @@ class EvidenceTests(unittest.TestCase):
         runtime = (TOOL.parent.parent / "src" / "core" / "ethhhpatch_runtime.cpp").read_text(encoding="utf-8")
         for site in sites:
             self.assertIn(f"0x{site:X}", runtime)
-        self.assertIn("i % 5 == 0 ? 1.0f : 0.0f", runtime)
+        policy = (TOOL.parent.parent / "src/core/ethhhpatch_runtime_policy.h").read_text(encoding="utf-8")
+        self.assertIn("i%5==0 ? 1.f : 0.f", policy)
+        self.assertIn("0x44EAA0",runtime)
+        self.assertIn("ContainAuthoredHudProjection",runtime)
 
     def test_display_transaction_uses_engine_reset_and_rollback(self):
         root = TOOL.parent.parent

@@ -241,10 +241,11 @@ separate bounded root slots and the same text clipping/restore protections.
 Movies now use the correct **six-argument cdecl draw ABI**, preserving alpha
 while fitting both axes; the earlier declaration kept the original X scale
 and added an unwanted centering offset. The user reports that the combined
-build looks good and plays well. Follow-up [HP timer clipping](attached-clock-clipping.md)
-and [minimize/restore recovery](display-reset-recovery.md) corrections are
-staged, not live-accepted. [Grade/belt alignment](grade-panel-investigation.md)
-was investigated without changing its rendering or artwork.
+build looks good and plays well, and subsequently accepted the [HP timer clipping](attached-clock-clipping.md)
+and [minimize/restore recovery](display-reset-recovery.md) corrections.
+[Grade/belt alignment](grade-panel-investigation.md) now shares the belt's
+horizontal containment with the native 640×480 model-overlay projection.
+This newest rendering correction is staged, not live-accepted; no artwork changes.
 See [combined findings and acceptance checklist](widescreen-hud.md)
 and the [inventory investigation history](inventory-hud.md).
 

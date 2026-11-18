@@ -172,6 +172,20 @@ class HotPathGuards(unittest.TestCase):
         self.assertNotIn("int height", movie)
         self.assertIn("six-argument native movie ABI", movie)
 
+    def test_grade_projection_is_only_the_authored_overlay_submission(self):
+        adjust=self.runtime[self.runtime.index("bool AdjustHudProjection("):self.runtime.index("bool RequestDisplayPlan(")]
+        self.assertIn("!g_active.load",adjust)
+        self.assertIn("returnAddress==game::A(0x44EAA0)",adjust)
+        self.assertIn("space=AuthoredHudSpace::ModelOverlay",adjust)
+        self.assertIn("ContainAuthoredHudProjection(&output._11",adjust)
+        self.assertIn("game::A(0x44726B)",adjust)
+        self.assertIn("game::A(0x4474D6)",adjust)
+        self.assertIn("game::A(0x44884A)",adjust)
+        self.assertNotIn("SafeRead",adjust)
+        self.assertNotIn("VirtualQuery",adjust)
+        self.assertNotIn("for (",adjust)
+        self.assertIn("authored overlay contract changed",self.runtime)
+
     def test_attached_clock_clipping_keeps_owner_boundary_scoped(self):
         policy=(ROOT / "src/core/ethhhpatch_hud.h").read_text(encoding="utf-8")
         owner=policy[policy.index("static bool AttachedClockOwner"):policy.index("bool Contains(")]

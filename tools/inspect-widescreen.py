@@ -117,6 +117,34 @@ def inspect(game):
     expect(parent,0x41DBD4,"mov","edx, dword ptr [ecx + 0xc]")
     expect(parent,0x41DBE1,"cmp","dword ptr [eax + 0x519a60], edx")
     expect(parent,0x41DC09,"call","0x42b7c0")
+    overlay=rows(0x44EA50,0x44EAA0)
+    expect(overlay,0x44EA64,"fld","dword ptr [eax + 0x5c1bc]")
+    expect(overlay,0x44EA6C,"push","0x44c80000")  # 1600 far
+    expect(overlay,0x44EA71,"push","0x3dcccccd")  # 0.1 near
+    expect(overlay,0x44EA7D,"fld","dword ptr [eax + 0x5c1b8]")
+    expect(overlay,0x44EA8B,"call","0x45eda3")
+    expect(overlay,0x44EA97,"push","3")  # D3DTS_PROJECTION
+    expect(overlay,0x44EA9A,"call","dword ptr [edx + 0xb0]")
+    render=rows(0x44EB80,0x44EBDC)
+    expect(render,0x44EBBD,"call","0x44ea50")
+    expect(render,0x44EBD7,"call","0x448fb0")
+    builder=rows(0x45EDA3,0x45EE17)
+    expect(builder,0x45EDAF,"fdiv","dword ptr [ebp + 0xc]")
+    expect(builder,0x45EDCE,"fdiv","dword ptr [ebp + 0x10]")
+    expect(builder,0x45EDF4,"fst","dword ptr [eax + 0x28]")
+    expect(builder,0x45EE0B,"fstp","dword ptr [eax + 0x38]")
+    expect(builder,0x45EE14,"ret","0x14")
+    for address, value in ((0x4C79C8,2.0),(0x4C7298,1.0)):
+        if struct.unpack_from("<f",data,image.offset(address,4))[0]!=value:
+            raise ValueError("orthographic builder constants differ")
+    for name, header, entry, unit, call_at in (
+        ("ProgressScreen_Grade",0xAA97C,0xA239C,0xA2394,0xA23B0),
+        ("PauseMenu_Grade",0xAAB60,0xA8968,0xA7EBC,0xA89AC),
+    ):
+        _,name_at,actual_entry,actual_unit=struct.unpack_from("<4I",blob,header)
+        if (blob[name_at:blob.index(b"\0",name_at)]!=name.encode() or
+            (actual_entry,actual_unit)!=(entry,unit) or struct.unpack_from("<I",blob,call_at)[0]>>16!=0x197):
+            raise ValueError("grade overlay script contract differs")
     return {
         "exe_sha256": previous["exe_sha256"], "panel_sha256": previous["member_sha256"],
         "call_sites": sites, "constructors": constructors, "attached_clock_calls": clock_calls,
@@ -128,8 +156,11 @@ def inspect(game):
         "movie": {"dispatch": "0x497D40", "return": "0x49A40A",
                   "arguments": ["surface","x","y","scaleX","scaleY","alpha"],
                   "caller_cleanup_bytes": 24,
-                  "fit_1920x1080": {"x":240,"y":0,"scaleX":2.25,"scaleY":2.25}},
-        "static_only": True, "followup_timer_reset_live_accepted": False,
+                   "fit_1920x1080": {"x":240,"y":0,"scaleX":2.25,"scaleY":2.25}},
+        "grade_overlay": {"projection_return":"0x44EAA0", "logical_size":[640,480],
+                          "near":0.1,"far":1600,"policy":"same horizontal containment as belt/pip sprites",
+                          "artwork_changed":False,"live_accepted":False},
+        "static_only": True, "followup_timer_reset_live_accepted": True,
         "prior_combined_build_feedback": "user reports looks good and plays well; timer/grade/restore follow-ups reported",
         "prior_inventory_performance": "user reports fixed after scoped-read/index optimization",
     }

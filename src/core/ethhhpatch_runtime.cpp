@@ -1027,6 +1027,9 @@ bool InstallHooks(bool cameraOnly)
     const uint8_t movieEntry[] = {0x8B,0x44,0x24,0x04,0x85,0xC0,0x74,0x15};
     const uint8_t movieCall[] = {0xE8,0x36,0xD9,0xFF,0xFF};
     const uint8_t movieCleanup[] = {0x83,0xC4,0x18}; // six cdecl arguments
+    const uint8_t overlayProjection[] = {0x50,0x6A,0x03,0x53,0xFF,0x92,0xB0,0,0,0};
+    const uint8_t overlayBuilder[] = {0xE8,0x13,0x03,0x01,0};
+    const uint8_t overlayDepth[] = {0x68,0,0,0xC8,0x44,0x68,0xCD,0xCC,0xCC,0x3D};
     if (!cameraOnly && (!SafeReadBytes(game::A(kInventoryMove), current, sizeof(inventoryEntry)) ||
         memcmp(current, inventoryEntry, sizeof(inventoryEntry)) ||
         !SafeReadBytes(game::A(kInventoryMoveReturn - 5), current, sizeof(nativeCall)) ||
@@ -1048,6 +1051,14 @@ bool InstallHooks(bool cameraOnly)
         !SafeReadBytes(game::A(0x49A410),current,sizeof(movieCleanup)) ||
         memcmp(current,movieCleanup,sizeof(movieCleanup)))) {
         ETH_ERROR("EthhhPatch refused movie hook: six-argument draw contract changed"); return false;
+    }
+    if (!cameraOnly && (!SafeReadBytes(game::A(0x44EA96),current,sizeof(overlayProjection)) ||
+        memcmp(current,overlayProjection,sizeof(overlayProjection)) ||
+        !SafeReadBytes(game::A(0x44EA8B),current,sizeof(overlayBuilder)) ||
+        memcmp(current,overlayBuilder,sizeof(overlayBuilder)) ||
+        !SafeReadBytes(game::A(0x44EA6C),current,sizeof(overlayDepth)) ||
+        memcmp(current,overlayDepth,sizeof(overlayDepth)))) {
+        ETH_ERROR("EthhhPatch refused HUD model projection: authored overlay contract changed"); return false;
     }
     struct Hook { uintptr_t va; void* detour; void** original; };
     const Hook hooks[] = {
@@ -1335,23 +1346,15 @@ bool Active() { return g_active.load(); }
 bool AdjustHudProjection(uintptr_t returnAddress, const D3DMATRIX* input, D3DMATRIX& output)
 {
     if (!g_active.load(std::memory_order_relaxed) || !input) return false;
-    if (returnAddress != game::A(0x44726B) && returnAddress != game::A(0x4474D6) &&
+    AuthoredHudSpace space=AuthoredHudSpace::Flat;
+    if (returnAddress==game::A(0x44EAA0)) space=AuthoredHudSpace::ModelOverlay;
+    else if (returnAddress != game::A(0x44726B) && returnAddress != game::A(0x4474D6) &&
         returnAddress != game::A(0x44884A)) return false;
     __try { memcpy(&output, input, sizeof(output)); }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-    const float* m = &output._11;
-    for (int i = 0; i < 16; ++i) if (!std::isfinite(m[i])) return false;
-    // These three checked sites submit identity projection for fixed 4:3-authored
-    // 2D geometry. Scale around NDC center; world/orthographic/movie sites remain untouched.
-    constexpr float epsilon = 1e-6f;
-    for (int i = 0; i < 16; ++i) {
-        const float expected = i % 5 == 0 ? 1.0f : 0.0f;
-        if (std::abs(m[i] - expected) > epsilon) return false;
-    }
-    const float scale = HudHorizontalScale(g_aspect.load(std::memory_order_relaxed));
-    if (!(scale > 0)) return false;
-    output._11 = scale;
-    return true;
+    // Grade models and belt/pip sprites now use the same authored-space scale.
+    // Only the submission copy changes: native animation/position/depth remain.
+    return ContainAuthoredHudProjection(&output._11,space,g_aspect.load(std::memory_order_relaxed));
 }
 
 bool RequestDisplayPlan(const DisplayPlan& plan, int monitorHz, std::string& error)

@@ -2,7 +2,7 @@
 
 ## Finding
 
-**The current patch applies different horizontal transforms to grades and their
+**The previous build applied different horizontal transforms to grades and their
 2D backing.** Grades are model-bearing script objects in the separate
 orthographic overlay list, not children of the belt sprite. Belt/pip sprites use
 the contained 2D projection. This explains outward spill and, for negative-X
@@ -12,6 +12,57 @@ it would not correct this coordinate/scale disagreement.
 Read-only inspection only: no game execution, asset writes,
 artwork extraction/replacement, or production changes. Screen appearance and
 exact visible silhouette overlap have not been measured.
+
+## Implemented correction — 2026-11-18
+
+`AdjustHudProjection` now also recognizes **return VA `0x44EAA0`**, the native
+640×480 orthographic model-overlay pass used by the pause/results grades.
+The production-shared `ContainAuthoredHudProjection` helper verifies the
+complete finite `OrthoLH(640,480,0.1,1600)` matrix before multiplying only
+its X projection scale by `(4/3)/actualAspect`. The belt/pip identity pass
+already receives that same scale. Both model position and silhouette width
+therefore follow the backing, without editing script animation, model scale,
+positions, Y, Z, depth clipping, W, or artwork.
+
+This intentionally corrects the **authored model-overlay pass**, not just a
+hard-coded list of grade instances. Other objects sharing that same verified
+640×480 pass get consistent containment too. World/perspective, movie and
+unrelated/custom orthographic submissions are refused by exact caller and matrix
+checks. At 4:3 the matrix is byte-identical. No new detour, object traversal,
+per-object work, memory queries or clip provenance changes were added.
+
+Activation preflight checks the native projection submission, orthographic
+builder call and near/far argument bytes. The matrix is changed only in the
+existing SetTransform hook's submission copy while the display patch is active;
+Restore/deactivation naturally returns to native rendering.
+
+### Verification and live retest
+
+- Release `build/dist/EthhhSDK.dll` rebuilt, **not installed**.
+- Projection/runtime policy suite: **1099 assertions**; matching model/artwork
+  coordinates and widths at five aspects (4:3 through 32:9), five viewport
+  widths, and twelve centered/edge/grade-layout X positions; byte-preserved
+  Y/Z/depth, malformed matrices, foreign orthographic/perspective projections,
+  invalid aspects and double-application refusal.
+- HUD/movie suite: **10505 assertions**. Display policy: **24452 assertions**.
+  Hot-path guards: **31 tests**. Native-only legacy evidence: **29 tests**.
+  ABI: **219 exports / 217 P/Invoke bindings**.
+- Combined HUD + attached-clock fixture: **0.0268 ms/tick+render**, 5 queries,
+  1479 protected copies. This fixture is not a live FPS measurement and does
+  not exercise the native grade renderer.
+- `python tools/inspect-widescreen.py` checks both grade script classes, the
+  overlay call path, builder arithmetic and projection submission in the
+  fingerprinted installation. Historical legacy asset-fixture limitations
+  remain unchanged; no fingerprint checks were relaxed.
+
+The user accepted the prior timer and minimize/restore corrections. **Grade
+alignment itself still needs live acceptance.** Replace the staged DLL with
+the game closed; test pause grade progress and level-results/progress screens,
+different belts/grade counts and animations, then close/reopen pause and
+minimize/restore. Recheck 4:3/16:9/ultrawide if available, gameplay HUD, movies,
+and F9-closed performance.
+
+The remaining sections retain the original static investigation and evidence.
 
 ## Fingerprints and offset conventions
 
@@ -96,7 +147,7 @@ shared unit at `+12`; confusing those loses the pause grade entry.
    Native `0xE6` (`0x41DD10`) reaches UI positioning `0x42BEF0/0x42BC60`.
    Native relocation distinguishes return/nonreturn tables at
    `0x426A43..0x426A77`: use `0x4C87C8`, not `0x4C7E70`, for `0x1068/0x10FA`.
-5. Current `src/core/ethhhpatch_runtime.cpp::AdjustHudProjection` accepts
+5. Before this correction, `src/core/ethhhpatch_runtime.cpp::AdjustHudProjection` accepted
    only identity submissions returning to `0x44726B`, `0x4474D6`,
    `0x44884A`, setting X scale to `(4/3)/aspect`. It does **not** accept
    `0x44EAA0` or its nonidentity orthographic matrix.

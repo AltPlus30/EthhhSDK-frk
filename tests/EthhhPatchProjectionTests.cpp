@@ -25,8 +25,85 @@ static void MakeMatrix(float (&m)[16], double verticalDegrees, double aspect, do
     m[14] = (float)(-nearPlane * farPlane / (farPlane - nearPlane));
 }
 
+static void MakeHudMatrix(float (&m)[16], AuthoredHudSpace space)
+{
+    memset(m,0,sizeof(m));
+    m[15]=1;
+    if (space==AuthoredHudSpace::Flat) { m[0]=m[5]=m[10]=1; return; }
+    m[0]=2.f/640; m[5]=2.f/480;
+    m[10]=1.f/(1600.f-.1f); m[14]=-.1f/(1600.f-.1f);
+}
+
 int main()
 {
+    for (float aspect : {4.f/3,16.f/10,16.f/9,21.f/9,32.f/9}) {
+        for (float width : {640.f,1280.f,1920.f,2560.f,3840.f}) {
+            float grade[16]{}, sprite[16]{}, original[16]{};
+            MakeHudMatrix(grade,AuthoredHudSpace::ModelOverlay);
+            memcpy(original,grade,sizeof(grade));
+            MakeHudMatrix(sprite,AuthoredHudSpace::Flat);
+            Check(ContainAuthoredHudProjection(grade,AuthoredHudSpace::ModelOverlay,aspect),
+                "native grade model-overlay projection accepted");
+            Check(ContainAuthoredHudProjection(sprite,AuthoredHudSpace::Flat,aspect),
+                "native belt/pip/text identity projection accepted");
+            Check(!memcmp(original+1,grade+1,15*sizeof(float)),
+                "grade Y/Z, clip planes, translation and W remain byte-identical");
+            if (aspect==4.f/3) Check(!memcmp(original,grade,sizeof(grade)),"4:3 overlay remains byte-identical");
+            for (float x : {-320.f,-280.f,-245.f,-120.f,-63.f,-40.f,0.f,40.f,120.f,245.f,280.f,320.f}) {
+                const float modelX=width*.5f*(1+x*grade[0]);
+                const float beltX=width*.5f*(1+(x/320)*sprite[0]);
+                Check(std::abs(modelX-beltX)<.001f,
+                    "grade and belt coordinates agree across pause/results positions and widescreen sizes");
+                const float modelWidth=width*.5f*20*grade[0];
+                const float beltWidth=width*.5f*(20.f/320)*sprite[0];
+                Check(std::abs(modelWidth-beltWidth)<.001f,"grade and belt horizontal size/spacing agree");
+            }
+        }
+    }
+    for (auto space : {AuthoredHudSpace::Flat,AuthoredHudSpace::ModelOverlay}) {
+        for (unsigned index=0;index<16;++index) {
+            for (float value : {std::numeric_limits<float>::quiet_NaN(),
+                                std::numeric_limits<float>::infinity(),-.03f,2.f}) {
+                float matrix[16]{}, before[16]{};
+                MakeHudMatrix(matrix,space); matrix[index]=value;
+                memcpy(before,matrix,sizeof(matrix));
+                Check(!ContainAuthoredHudProjection(matrix,space,16.f/9) && !memcmp(before,matrix,sizeof(matrix)),
+                    "malformed/custom HUD projection refused before any mutation");
+            }
+        }
+        for (float aspect : {0.f,-1.f,std::numeric_limits<float>::quiet_NaN(),
+                             std::numeric_limits<float>::infinity(),std::numeric_limits<float>::denorm_min()}) {
+            float matrix[16]{}, before[16]{};
+            MakeHudMatrix(matrix,space); memcpy(before,matrix,sizeof(matrix));
+            Check(!ContainAuthoredHudProjection(matrix,space,aspect) && !memcmp(before,matrix,sizeof(matrix)),
+                "invalid or overflowing aspect cannot corrupt HUD matrix");
+        }
+    }
+    {
+        float matrix[16]{}, before[16]{};
+        MakeHudMatrix(matrix,AuthoredHudSpace::ModelOverlay);
+        memcpy(before,matrix,sizeof(matrix));
+        Check(!ContainAuthoredHudProjection(matrix,AuthoredHudSpace::Flat,16.f/9) &&
+            !memcmp(before,matrix,sizeof(matrix)),"overlay cannot enter the identity HUD branch");
+        MakeHudMatrix(matrix,AuthoredHudSpace::Flat);
+        Check(!ContainAuthoredHudProjection(matrix,AuthoredHudSpace::ModelOverlay,16.f/9),
+            "identity cannot enter the grade-overlay branch");
+        Check(!ContainAuthoredHudProjection(matrix,static_cast<AuthoredHudSpace>(255),16.f/9),
+            "unknown projection space refused");
+        Check(!ContainAuthoredHudProjection(nullptr,AuthoredHudSpace::ModelOverlay,16.f/9),"null overlay refused");
+        MakeMatrix(matrix,60,16.f/9,.1,1600);
+        memcpy(before,matrix,sizeof(matrix));
+        Check(!ContainAuthoredHudProjection(matrix,AuthoredHudSpace::ModelOverlay,16.f/9) &&
+            !memcmp(before,matrix,sizeof(matrix)),"world/movie perspective is never treated as grade overlay");
+        MakeHudMatrix(matrix,AuthoredHudSpace::ModelOverlay);
+        matrix[0]=2.f/1280; matrix[5]=2.f/720;
+        Check(!ContainAuthoredHudProjection(matrix,AuthoredHudSpace::ModelOverlay,16.f/9),
+            "already viewport-sized or foreign orthographic matrix refused");
+        MakeHudMatrix(matrix,AuthoredHudSpace::ModelOverlay);
+        Check(ContainAuthoredHudProjection(matrix,AuthoredHudSpace::ModelOverlay,16.f/9) &&
+            !ContainAuthoredHudProjection(matrix,AuthoredHudSpace::ModelOverlay,16.f/9),
+            "contained overlay cannot be squeezed a second time");
+    }
     ProjectionMetrics result;
     result.aspect = 123;
     Check(!InspectPerspectiveLH(nullptr, result) && result.aspect == 0, "null matrix clears metrics");

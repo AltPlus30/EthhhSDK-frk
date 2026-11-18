@@ -130,9 +130,9 @@ See [EthhhPatch development status](docs/ethhhpatch.md).
 
 The display patch includes [combined percentage-based HUD anchors and centered
 movie fit](docs/widescreen-hud.md). Inventory sliding/performance correction is
-user-confirmed, as is the combined HP/rage/movie build. Follow-up timer clipping
-and minimize/restore corrections are built/offline-tested and awaiting live
-retesting; grade/belt alignment is investigated without artwork changes.
+user-confirmed, as are the combined HP/rage/movie build and the timer clipping
+and minimize/restore corrections. Grade/belt projection alignment is now
+built/offline-tested and awaiting live retesting, without artwork changes.
 
 **PestControl** is an optional, off-by-default EthhhPatch tab in both managers.
 It finds exact `Rat` strats and queues verified native deletion, independently of

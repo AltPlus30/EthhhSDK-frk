@@ -5,11 +5,11 @@
 The user reports that the combined HP/rage/inventory/movie build "looks good
 and plays well." Its performance protections remain in place. Follow-up reports
 identify partially visible timer text, misaligned grade/belt panels, and display
-detachment after minimizing. The new [Reset recovery](display-reset-recovery.md)
-and [HP-attached clock clipping correction](attached-clock-clipping.md) are
-built/offline-tested and need live retests. The [grade/belt investigation](grade-panel-investigation.md)
-identifies a separate 3D/2D transform mismatch; no artwork or grade rendering
-changes were made.
+detachment after minimizing. The user now confirms that [Reset recovery](display-reset-recovery.md)
+and [HP-attached clock clipping](attached-clock-clipping.md) work well.
+The [grade/belt correction](grade-panel-investigation.md) now aligns the
+authored model-overlay projection with the 2D belt/pip artwork. This newest
+correction is built/offline-tested, awaiting live acceptance; no artwork changes.
 
 The display patch now shares one gameplay HUD policy in
 `src/core/ethhhpatch_hud.h`:
