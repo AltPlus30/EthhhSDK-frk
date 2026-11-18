@@ -35,6 +35,94 @@ local lastPlayer   = nil     -- last known player address
 local keyLatch     = {}
 local teleportOff  = { x = 0.0, y = 0.0, z = 0.0 }
 
+-- Session-only: never arm a write/freeze from saved settings.
+local valueFields = {
+    { key = "health", label = "Health", floating = true },
+    { key = "rage", label = "Rage" },
+    { key = "coins", label = "Coin bank" },
+    { key = "score", label = "Score" },
+    { key = "multiplier", label = "Score multiplier (1-10)" },
+    { key = "lives", label = "Lives" },
+    { key = "darts", label = "Darts" },
+    { key = "shurikens", label = "Shurikens" },
+    { key = "ranx", label = "Ranx bank (currency, not ranks)" },
+}
+
+local function releaseFreezes()
+    for _, field in ipairs(valueFields) do field.frozen = false end
+end
+
+local function applyFreezes()
+    if not game.set_trainer_value then return end
+    for _, field in ipairs(valueFields) do
+        if field.frozen and not game.set_trainer_value(field.key, field.target, field.address) then
+            field.frozen = false
+            field.message = "Freeze released: pointer changed, value rejected or write failed."
+            log.warn("trainer: " .. field.label .. " freeze released")
+        end
+    end
+end
+
+local function drawValues()
+    if not game.trainer_supported or not game.trainer_supported() then
+        ui.text_colored(WARN, "Value editing requires the updated DLL and supported I-Ninja.exe.")
+        return
+    end
+    ui.text_disabled("Apply writes once. Freeze repeats the target after each game tick; it is not a native cheat.")
+    ui.text_disabled("Changes may be saved by the game. Back up your saves. All freezes start OFF.")
+    ui.text_disabled("CE reference: health base 4 (+1/belt); rage base 256 (+256/skill).")
+    if ui.button("Release all value freezes") then releaseFreezes() end
+    for _, field in ipairs(valueFields) do
+        ui.push_id(field.key)
+        local current, address = game.trainer_value(field.key)
+        if field.frozen and address ~= field.address then
+            field.frozen = false
+            field.message = "Freeze released: value unavailable or pointer changed."
+        end
+        ui.text(field.label .. ": " .. (current == nil and "unavailable" or tostring(current)))
+        if current ~= nil then
+            -- A moved allocation invalidates the old draft as well as its freeze.
+            if field.address ~= address then
+                field.target = current
+                field.address = address
+            end
+            ui.set_next_item_width(170)
+            local target, changed
+            if field.floating then
+                target, changed = ui.input_float("Target", field.target)
+            else
+                target, changed = ui.input_int("Target", field.target)
+            end
+            if changed then
+                field.target = target
+                field.frozen = false -- editing a draft never silently writes it
+            end
+            ui.same_line()
+            if ui.button("Use current") then
+                field.target = current
+                field.frozen = false
+                field.message = nil
+            end
+            ui.same_line()
+            if ui.button("Apply") then
+                local ok = game.set_trainer_value(field.key, field.target, address)
+                field.message = ok and "Applied." or "Rejected: invalid target, pointer changed or write failed."
+            end
+            ui.same_line()
+            local frozen, toggled = ui.checkbox("Freeze", field.frozen or false)
+            if toggled then
+                field.frozen = frozen and game.set_trainer_value(field.key, field.target, address)
+                field.message = field.frozen and "Frozen until released or pointer/write failure."
+                    or (frozen and "Freeze rejected." or "Released; last written value is not reverted.")
+            end
+        end
+        if field.message then ui.text_disabled(field.message) end
+        ui.pop_id()
+    end
+    ui.text_disabled("Editor limits: health 0-64, rage 0-65536, multiplier 1-10; others nonnegative int32.")
+    ui.text_disabled("Limits are conservative editor policy, not verified native capacities.")
+end
+
 -- ---------------------------------------------------------------------------
 --  Helpers
 -- ---------------------------------------------------------------------------
@@ -93,6 +181,7 @@ end
 -- ---------------------------------------------------------------------------
 hook.add("tick", function(tickIndex, dt)
     applyTimescale()
+    applyFreezes()
 
     -- F6: teleport player to the camera position.
     if pressedOnce(F6) then
@@ -220,6 +309,8 @@ hook.add("gui", function()
         end
         ui.text_disabled(string.format("debug flags = 0x%04X", flags))
     end
+
+    if ui.collapsing_header("Values / inventory", true) then drawValues() end
 
     ---------------------------------------------------------- player tracking
     if ui.collapsing_header("Player", true) then

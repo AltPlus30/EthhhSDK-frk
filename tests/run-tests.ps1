@@ -14,6 +14,14 @@ foreach ($file in @('EthhhSDK.dll','EthhhSDK.Managed.dll','mods\HalfLifeMovement
 }
 & $cmake -S $root -B $build -G 'Visual Studio 17 2022' -A Win32 -DETH_BUILD_TESTS=ON
 if ($LASTEXITCODE -ne 0) { throw 'Test configure failed.' }
+& $cmake --build $build --config $Configuration --target eth_trainer_value_tests eth_trainer_lua_tests
+if ($LASTEXITCODE -ne 0) { throw 'Trainer test build failed.' }
+& "$out\eth_trainer_value_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Trainer value regression failed.' }
+& "$out\eth_trainer_value_tests.exe" unsupported
+if ($LASTEXITCODE -ne 0) { throw 'Trainer unsupported executable regression failed.' }
+& "$out\eth_trainer_lua_tests.exe" "$root\tests\trainer-values.lua" "$root\mods\trainer\mod.lua"
+if ($LASTEXITCODE -ne 0) { throw 'Trainer Lua regression failed.' }
 & $cmake --build $build --config $Configuration --target eth_test_native eth_player_learning_tests eth_player_tracker_tests eth_ui_motion_tests eth_pestcontrol_tests eth_pestcontrol_runtime_tests eth_chrome_preview eth_strat_identity_tests eth_ethhhpatch_policy_tests eth_ethhhpatch_projection_tests eth_ethhhpatch_camera_tests eth_ethhhpatch_interpolation_tests eth_ethhhpatch_entity_tests eth_entity_performance_tests eth_movement_input_tests eth_mouse_attack_tests eth_ethhhpatch_lens_tests eth_sha256_tests eth_camera_relative_heading_tests eth_display_config_tests eth_overlay_cursor_tests --parallel 6
 if ($LASTEXITCODE -ne 0) { throw 'Native test shim build failed.' }
 & powershell -NoProfile -ExecutionPolicy Bypass -File "$root\tools\stage-notices.ps1"

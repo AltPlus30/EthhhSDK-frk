@@ -10,6 +10,7 @@
 #include "overlay.h"
 #include "button_prompts.h"
 #include "mission_timer.h"
+#include "trainer_values.h"
 
 extern "C" {
 #include "lua.h"
@@ -97,6 +98,27 @@ int g_stop_mission_timer(lua_State* L) {
 }
 
 int g_debug_flags(lua_State* L) { lua_pushinteger(L, game::DebugFlags()); return 1; }
+int g_trainer_supported(lua_State* L) { lua_pushboolean(L, trainer::Supported()); return 1; }
+int g_trainer_value(lua_State* L)
+{
+    double value = 0;
+    uintptr_t address = 0;
+    if (!trainer::Read(luaL_checkstring(L, 1), value, address)) {
+        lua_pushnil(L); return 1;
+    }
+    lua_pushnumber(L, value);
+    lua_pushinteger(L, address);
+    return 2;
+}
+int g_set_trainer_value(lua_State* L)
+{
+    const char* name = luaL_checkstring(L, 1);
+    const double value = luaL_checknumber(L, 2);
+    const auto address = luaL_checkinteger(L, 3);
+    lua_pushboolean(L, address > 0 && address <= UINT32_MAX &&
+        trainer::Write(name, value, uintptr_t(address)));
+    return 1;
+}
 int g_set_debug_flags(lua_State* L) { game::SetDebugFlags((uint16_t)luaL_checkinteger(L, 1)); return 0; }
 int g_toggle_flag(lua_State* L)
 {
@@ -577,6 +599,8 @@ void RegisterApi(lua_State* L, const mods::ModInfo& mod)
         { "tick", g_tick }, { "frame", g_frame }, { "time", g_time },
         { "time_step", g_time_step }, { "timescale", g_timescale }, { "set_timescale", g_set_timescale },
         { "stop_mission_timer", g_stop_mission_timer },
+        { "trainer_supported", g_trainer_supported },
+        { "trainer_value", g_trainer_value }, { "set_trainer_value", g_set_trainer_value },
         { "debug_flags", g_debug_flags }, { "set_debug_flags", g_set_debug_flags }, { "toggle_flag", g_toggle_flag },
         { "camera", g_camera }, { "set_camera_pos", g_set_camera_pos }, { "set_camera_fov", g_set_camera_fov },
         { "camera_fov_deg", g_camera_fov_deg }, { "update_view", g_update_view }, { "set_camera_world", g_set_camera_world },

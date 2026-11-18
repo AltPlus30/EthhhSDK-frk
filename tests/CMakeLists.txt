@@ -1,4 +1,14 @@
 # The fake native ABI is isolated from build/dist and never installed.
+add_executable(eth_trainer_value_tests TrainerValueTests.cpp)
+target_include_directories(eth_trainer_value_tests PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/imgui)
+add_executable(eth_trainer_lua_tests TrainerLuaTests.cpp)
+target_link_libraries(eth_trainer_lua_tests PRIVATE lua54)
+foreach(target IN ITEMS eth_trainer_value_tests eth_trainer_lua_tests)
+  set_target_properties(${target} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tests/interop"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")
+endforeach()
+
 add_executable(eth_mission_timer_tests MissionTimerTests.cpp)
 target_include_directories(eth_mission_timer_tests PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/imgui)
 target_link_libraries(eth_mission_timer_tests PRIVATE minhook)

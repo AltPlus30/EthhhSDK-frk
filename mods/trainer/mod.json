@@ -1,9 +1,9 @@
 {
   "id": "trainer",
   "name": "I-Ninja Trainer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "EthhhSDK",
-  "description": "Live trainer and game inspector: debug flags, slow motion, player tracking, teleport, save stats, strat browser and raw memory tools.",
+  "description": "Trainer with health, rage, currency, score, multiplier and ammo editing/freezing, mission timer stop, teleport, player tracking and live inspection.",
   "type": "lua",
   "entry": "mod.lua",
   "api": 1,

@@ -43,6 +43,9 @@ be installed into the game directory.
   or set `[core] launcher=true` in `EthhhSDK.ini`.
 - `mods/trainer/mod.lua`: Lua trainer and inspection example.
   Includes [Stop mission timer](docs/mission-timer.md) (findings and Cheat Engine recipe).
+  [Value editing/freezing](docs/trainer-values.md) covers health, rage, coins,
+  score/multiplier, lives, darts, shurikens and Ranx currency, using the supplied
+  CE mappings with supported-executable and pointer-identity checks.
 - `mods/XboxPrompts/mod.lua`: Xbox icons in native embedded button prompts;
   [mapping, installation and verification status](docs/xbox-prompts.md).
 - [Generic button-prompt support](docs/button-prompts.md): mods supply their
