@@ -48,6 +48,110 @@ local valueFields = {
     { key = "ranx", label = "Ranx bank (currency, not ranks)" },
 }
 
+local tuning = { -- session-only drafts; opening the panel never applies anything
+    speed = 1.0, jump = 1.0,
+    appliedSpeed = 1.0, appliedJump = 1.0,
+    movementRequested = false,
+    equipment = {
+        {key = "sword", label = "Sword tier", max = 5},
+        {key = "belt", label = "Belt tier", max = 6},
+        {key = "ranks", label = "Earned ranks / grades (not Ranx)", max = 63},
+    },
+}
+
+local function stopNativeMovement()
+    if game.clear_trainer_movement then game.clear_trainer_movement() end
+    tuning.movementRequested = false
+    tuning.appliedSpeed, tuning.appliedJump = 1.0, 1.0
+    tuning.movementMessage = "Stopped. Existing velocity resolves through native braking/landing."
+end
+
+local function drawNativeMovement()
+    ui.text_colored(ACCENT, "NATIVE MOVEMENT")
+    if not game.set_trainer_movement or not game.clear_trainer_movement then
+        ui.text_disabled("Native movement tuning requires an updated SDK.")
+        return
+    end
+    ui.text_disabled("Native locomotion caps/acceleration and base jump launch only. Not an exact speed/apex multiplier.")
+    ui.text_disabled("Requires an exact Ninja pin; yields while native keys or camera are externally owned (e.g. HL).")
+    ui.set_next_item_width(260)
+    tuning.speed = ui.slider_float("Native locomotion factor", tuning.speed, 0.5, 5.0, "%.2fx")
+    ui.set_next_item_width(260)
+    tuning.jump = ui.slider_float("Base jump impulse factor", tuning.jump, 0.5, 5.0, "%.2fx")
+    if tuning.speed > 2.0 or tuning.jump > 2.0 or
+       tuning.appliedSpeed > 2.0 or tuning.appliedJump > 2.0 then
+        ui.text_colored(WARN, "Above 2x is not yet live-tested; high factors may cause collision, camera or out-of-bounds issues.")
+    end
+    if ui.button("Apply native movement tuning") then
+        local ok = game.set_trainer_movement(tuning.speed, tuning.jump)
+        if ok then
+            tuning.appliedSpeed, tuning.appliedJump = tuning.speed, tuning.jump
+            tuning.movementRequested = tuning.speed ~= 1.0 or tuning.jump ~= 1.0
+            tuning.movementMessage = tuning.movementRequested and
+                "Request accepted. Only the matching pinned Ninja/script recipe is modified."
+                or "Default factors: tuning request released."
+        else
+            tuning.movementMessage = "Request rejected: VM hook unavailable, invalid factors or another owner."
+        end
+    end
+    ui.same_line()
+    if ui.button("Stop native movement tuning") then stopNativeMovement() end
+    ui.same_line()
+    if ui.button("Reset movement draft") then tuning.speed, tuning.jump = 1.0, 1.0 end
+    if tuning.movementRequested then
+        ui.text(string.format("Requested: locomotion %.2fx / base jump %.2fx (draft changes need Apply)",
+            tuning.appliedSpeed, tuning.appliedJump))
+    end
+    if tuning.movementMessage then ui.text_disabled(tuning.movementMessage) end
+    ui.text_disabled("Special jumps may differ or bypass this helper. No jump-cooldown removal; test modest factors first.")
+    ui.separator()
+end
+
+local function drawMovementEquipment()
+    ui.text_colored(WARN, "Back up your saves before editing equipment or ranks; the game may save these changes.")
+    ui.text_disabled("Drafts require Apply. Movement requests start OFF on reload; applied equipment edits are not reverted.")
+    if not game.set_trainer_equipment or not game.trainer_supported or not game.trainer_supported() then
+        ui.text_disabled("Movement/equipment controls require an updated SDK and supported executable.")
+        return
+    end
+    drawNativeMovement()
+    ui.text_colored(ACCENT, "EQUIPMENT / EARNED RANKS")
+    ui.text_disabled("Select/pin the exact Ninja (Auto+ or Manual) with a level loaded. Apply is queued to a game tick.")
+    ui.text_disabled("Sword/belt appearance may not update until you attack once. If still unchanged, reload the level.")
+    ui.text_disabled("Ranks, belt, health and mission unlocks are separate; they are NOT automatically synchronized.")
+    for _, field in ipairs(tuning.equipment) do
+        ui.push_id("equipment_" .. field.key)
+        local current, address = game.trainer_value(field.key)
+        ui.text(field.label .. ": " .. (current == nil and "unavailable" or tostring(current)))
+        if current ~= nil then
+            if field.address ~= address then
+                field.address = address
+                field.target = math.max(0, math.min(field.max, current))
+            end
+            ui.set_next_item_width(210)
+            field.target = ui.slider_int("Target", field.target, 0, field.max)
+            ui.same_line()
+            if ui.button("Use current") then
+                field.target = math.max(0, math.min(field.max, current))
+            end
+            ui.same_line()
+            if ui.button("Apply") then
+                local ok = game.set_trainer_equipment(field.key, field.target, address)
+                if ok then
+                    tuning.message = nil
+                else
+                    tuning.message = "Request rejected: check the Ninja pin, range, profile pointer and pending request."
+                end
+            end
+        end
+        ui.pop_id()
+    end
+    if tuning.message then ui.text_colored(WARN, tuning.message) end
+    ui.text_disabled(game.trainer_equipment_status())
+    if ui.button("Cancel pending equipment edit") then game.cancel_trainer_equipment() end
+    ui.text_disabled("No equipment freezes: repeated refresh events would disrupt native state.")
+end
+
 local function releaseFreezes()
     for _, field in ipairs(valueFields) do field.frozen = false end
 end
@@ -311,6 +415,7 @@ hook.add("gui", function()
     end
 
     if ui.collapsing_header("Values / inventory", true) then drawValues() end
+    if ui.collapsing_header("Movement / equipment", false) then drawMovementEquipment() end
 
     ---------------------------------------------------------- player tracking
     if ui.collapsing_header("Player", true) then

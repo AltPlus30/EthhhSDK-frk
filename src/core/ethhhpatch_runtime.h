@@ -36,6 +36,7 @@ bool ForgetStartupDisplay();
 void OnResetResult(const D3DPRESENT_PARAMETERS* parameters, HRESULT result);
 ApplyStatus ReadApplyStatus();
 void SetExternalCameraOwned(bool owned);
+bool ExternalCameraOwned();
 void NotifyMoviePresent();
 void SetOrbitEnabled(bool enabled);
 void ResumeOrbit();

@@ -11,6 +11,8 @@
 #include "button_prompts.h"
 #include "mission_timer.h"
 #include "trainer_values.h"
+#include "trainer_equipment.h"
+#include "trainer_movement.h"
 
 extern "C" {
 #include "lua.h"
@@ -115,9 +117,43 @@ int g_set_trainer_value(lua_State* L)
     const char* name = luaL_checkstring(L, 1);
     const double value = luaL_checknumber(L, 2);
     const auto address = luaL_checkinteger(L, 3);
-    lua_pushboolean(L, address > 0 && address <= UINT32_MAX &&
+    const bool equipmentField = !strcmp(name, "sword") || !strcmp(name, "belt") || !strcmp(name, "ranks");
+    lua_pushboolean(L, !equipmentField && address > 0 && address <= UINT32_MAX &&
         trainer::Write(name, value, uintptr_t(address)));
     return 1;
+}
+int g_set_trainer_equipment(lua_State* L)
+{
+    const char* field = luaL_checkstring(L, 1);
+    const auto value = luaL_checkinteger(L, 2);
+    const auto address = luaL_checkinteger(L, 3);
+    lua_pushboolean(L, value >= 0 && value <= 63 && address > 0 && address <= UINT32_MAX &&
+        trainer::equipment::Request(ModId(L), field, int(value), uintptr_t(address)));
+    return 1;
+}
+int g_trainer_equipment_status(lua_State* L)
+{
+    const auto status = trainer::equipment::Status(ModId(L));
+    lua_pushlstring(L, status.data(), status.size());
+    return 1;
+}
+int g_cancel_trainer_equipment(lua_State* L)
+{
+    trainer::equipment::Release(ModId(L));
+    return 0;
+}
+int g_set_trainer_movement(lua_State* L)
+{
+    const float speed = float(luaL_checknumber(L, 1));
+    const float jump = float(luaL_checknumber(L, 2));
+    lua_pushboolean(L, mission_timer::Available() &&
+        trainer_movement::Set(ModId(L), speed, jump));
+    return 1;
+}
+int g_clear_trainer_movement(lua_State* L)
+{
+    trainer_movement::Release(ModId(L));
+    return 0;
 }
 int g_set_debug_flags(lua_State* L) { game::SetDebugFlags((uint16_t)luaL_checkinteger(L, 1)); return 0; }
 int g_toggle_flag(lua_State* L)
@@ -601,6 +637,11 @@ void RegisterApi(lua_State* L, const mods::ModInfo& mod)
         { "stop_mission_timer", g_stop_mission_timer },
         { "trainer_supported", g_trainer_supported },
         { "trainer_value", g_trainer_value }, { "set_trainer_value", g_set_trainer_value },
+        { "set_trainer_equipment", g_set_trainer_equipment },
+        { "trainer_equipment_status", g_trainer_equipment_status },
+        { "cancel_trainer_equipment", g_cancel_trainer_equipment },
+        { "set_trainer_movement", g_set_trainer_movement },
+        { "clear_trainer_movement", g_clear_trainer_movement },
         { "debug_flags", g_debug_flags }, { "set_debug_flags", g_set_debug_flags }, { "toggle_flag", g_toggle_flag },
         { "camera", g_camera }, { "set_camera_pos", g_set_camera_pos }, { "set_camera_fov", g_set_camera_fov },
         { "camera_fov_deg", g_camera_fov_deg }, { "update_view", g_update_view }, { "set_camera_world", g_set_camera_world },

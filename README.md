@@ -46,6 +46,13 @@ be installed into the game directory.
   [Value editing/freezing](docs/trainer-values.md) covers health, rage, coins,
   score/multiplier, lives, darts, shurikens and Ranx currency, using the supplied
   CE mappings with supported-executable and pointer-identity checks.
+  [Movement / equipment controls](docs/trainer-experimental.md) provide
+  native locomotion/base-jump factors up to 5× and equipment/rank editing,
+  with explicit Apply/Stop and no experimental enable toggle.
+  The user confirms the prior controls work; factors above 2× carry a warning.
+  Sword/belt appearance may need one attack to update. Back up saves first.
+  [Cosmetic Editor research](docs/trainer-cosmetic-research.md) identifies
+  tint/model/texture entry points only; no cosmetic editor is implemented.
 - `mods/XboxPrompts/mod.lua`: Xbox icons in native embedded button prompts;
   [mapping, installation and verification status](docs/xbox-prompts.md).
 - [Generic button-prompt support](docs/button-prompts.md): mods supply their

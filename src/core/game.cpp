@@ -722,6 +722,28 @@ bool PlayerTracker::Valid() const
     });
 }
 
+bool PlayerTracker::IsPinnedVmNinja(uintptr_t self) const
+{
+    if (!Pinned() || self != manual_ || !knownClass_ || !knownHandle_ ||
+        self > UINT32_MAX - 0x1AC) return false;
+    // The engine is already executing this self on the VM thread. Check the
+    // original pin generation/class and live handle registry without rebuilding
+    // the linked list. Do not use this helper for arbitrary render-thread writes.
+    __try {
+        const auto cls = *reinterpret_cast<const uint32_t*>(self + off::StratClass);
+        if (cls != uintptr_t(knownClass_) ||
+            *reinterpret_cast<const uint32_t*>(self + off::StratSelfHandle) != knownHandle_ ||
+            (*reinterpret_cast<const uint32_t*>(self + off::StratFlags) & 1)) return false;
+        const auto* name = *reinterpret_cast<const char* const*>(uintptr_t(cls) + 4);
+        if (!name || memcmp(name, "Ninja", sizeof("Ninja"))) return false;
+        const uintptr_t slot = A(off::StratMgrObject) + (knownHandle_ & 0x1ffu) * 8u;
+        const auto* pair = reinterpret_cast<const volatile uint32_t*>(slot);
+        return pair[0] == knownHandle_ && pair[1] == self &&
+               pair[0] == knownHandle_ && pair[1] == self;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 std::string PlayerTracker::DetectionInfo() const
 {
     if (!info_.empty()) return info_;

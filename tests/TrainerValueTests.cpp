@@ -54,8 +54,9 @@ int main(int argc, char**)
         CHECK(value == (field.floating ? 4 : 20) && address == uintptr_t(profile) + field.offset);
         uint8_t before[sizeof(profile)];
         memcpy(before, profile, sizeof(profile));
-        CHECK(Write(field.name, 7, address));
-        CHECK(Read(field.name, value, address) && value == 7);
+        const double target = (std::min)(7.0, field.maximum);
+        CHECK(Write(field.name, target, address));
+        CHECK(Read(field.name, value, address) && value == target);
         memcpy(before + field.offset, profile + field.offset, 4);
         CHECK(!memcmp(before, profile, sizeof(profile))); // exactly four bytes
         CHECK(!Write(field.name, -1, address));
@@ -66,7 +67,7 @@ int main(int argc, char**)
         CHECK(!Write(field.name, std::numeric_limits<double>::quiet_NaN(), address));
         if (!field.floating) CHECK(!Write(field.name, 3.5, address));
     }
-    CHECK(!Read("ranks", value, address) && !address);
+    CHECK(!Read("not_a_field", value, address) && !address);
     CHECK(!Write("unknown", 0, uintptr_t(profile)));
     CHECK(!Read(nullptr, value, address));
     CHECK(Read("health", value, address));
@@ -108,5 +109,5 @@ int main(int argc, char**)
     CHECK(VirtualFree(page, 0, MEM_RELEASE));
     CHECK(!Read("coins", value, address)); // freed allocation
     CHECK(hashCalls == 1); // no filesystem or memory-query work per tick
-    std::puts("PASS trainer values: nine fields, CE order, ranges, identity, SEH and read-only refusal");
+    std::puts("PASS trainer values: CE/equipment fields, CE order, ranges, identity, SEH and read-only refusal");
 }

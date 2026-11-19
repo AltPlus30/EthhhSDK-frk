@@ -10,6 +10,8 @@
 #include "pestcontrol.h"
 #include "button_prompts.h"
 #include "mission_timer.h"
+#include "trainer_equipment.h"
+#include "trainer_movement.h"
 
 #include <MinHook.h>
 
@@ -89,6 +91,7 @@ void __fastcall TickDetour(void* self, void* /*edx*/, int tickIndex)
 
     overlay::OnGameTick();
     game::PlayerTracker::Get().Update();
+    trainer::equipment::OnNativeTickCompleted();
     mods::ModManager::Get().Tick(tickIndex);
 
     RunTickCallbacks(tickIndex);
@@ -386,6 +389,8 @@ void Shutdown()
     patch::runtime::Shutdown();
     prompts::Shutdown();
     mission_timer::Shutdown();
+    trainer::equipment::Shutdown();
+    trainer_movement::Shutdown();
     if (g_hookedHwnd && g_oldWndProc) {
         SetWindowLongPtrA(g_hookedHwnd, GWLP_WNDPROC, (LONG_PTR)g_oldWndProc);
         g_oldWndProc = nullptr;

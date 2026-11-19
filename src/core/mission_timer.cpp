@@ -1,6 +1,9 @@
 #include "mission_timer.h"
 #include "game.h"
 #include "util.h"
+#include "trainer_movement.h"
+#include "input.h"
+#include "ethhhpatch_runtime.h"
 #include <MinHook.h>
 #include <set>
 
@@ -16,7 +19,7 @@ constexpr uint32_t kCountdown[] = {
 constexpr uint32_t kSkipCountdown = 0x78FF0006; // PC += 4 + 6*4
 using VmFn = void(__thiscall*)(void*);
 VmFn original = nullptr;
-bool installed = false;
+std::atomic<bool> installed{false};
 std::mutex mutex;
 std::set<std::string> owners;
 std::atomic<bool> stopped{false};
@@ -59,6 +62,15 @@ bool WriteScriptWord(uintptr_t address, uint32_t expected, uint32_t replacement)
 void __fastcall VmDetour(void* self, void*)
 {
     uintptr_t patched = 0;
+    trainer_movement::VmPatch movement;
+    // Disabled: atomic test only. Never resolve a player or query memory for
+    // unrelated VM calls. Fresh pin/registry checks occur only for matching self.
+    if (trainer_movement::Active() && !input::NativeMovementKeysOwned() &&
+        !patch::runtime::ExternalCameraOwned()) {
+        const uintptr_t address = reinterpret_cast<uintptr_t>(self);
+        if (game::PlayerTracker::Get().IsPinnedVmNinja(address))
+            movement = trainer_movement::BeforeVm(address, address, false);
+    }
     if (stopped.load(std::memory_order_relaxed)) {
         patched = CountdownAddress(reinterpret_cast<uintptr_t>(self));
         if (patched && !WriteScriptWord(patched, kCountdown[0], kSkipCountdown)) patched = 0;
@@ -69,6 +81,7 @@ void __fastcall VmDetour(void* self, void*)
         if (original) original(self);
     }
     __finally {
+        trainer_movement::AfterVm(movement);
         if (patched) WriteScriptWord(patched, kSkipCountdown, kCountdown[0]);
     }
 }
@@ -99,6 +112,8 @@ bool Install()
     installed = true;
     return true;
 }
+
+bool Available() { return installed.load(std::memory_order_acquire); }
 
 bool SetStopped(const std::string& owner, bool value)
 {

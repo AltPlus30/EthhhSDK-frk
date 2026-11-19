@@ -85,6 +85,22 @@ int main() {
     Check(!t.ReacquireExactNinja(),"Auto+ cannot reacquire before its first verified pin");
     t.Update();Check(t.Pinned() && t.Valid() && t.Addr()==Address(ninja) && t.Mode()==PlayerMode::AutoPlus,"unique exact Ninja becomes an Auto+ pin");
     Check(t.DetectionInfo().find("HL remains OFF")!=std::string::npos,"pinning does not activate HL");
+    const auto beforeVmReads = reads;
+    Check(t.IsPinnedVmNinja(Address(ninja)),"VM self has fresh exact pin generation and registry");
+    Check(!t.IsPinnedVmNinja(Address(head)) && !t.IsPinnedVmNinja(1),"unrelated VM selves rejected without dereference");
+    Put(Address(ninja)+off::StratFlags,uint32_t(1));
+    Check(!t.IsPinnedVmNinja(Address(ninja)),"pending deletion is not a writable VM pin");
+    Put(Address(ninja)+off::StratFlags,uint32_t(0));
+    Put(Address(ninja)+off::StratSelfHandle,uint32_t(0x401));
+    Check(!t.IsPinnedVmNinja(Address(ninja)),"VM self generation change is rejected immediately");
+    Put(Address(ninja)+off::StratSelfHandle,uint32_t(0x201));
+    Put(A(off::StratMgrObject)+(0x201&0x1ffu)*8,uint32_t(0x401));
+    Check(!t.IsPinnedVmNinja(Address(ninja)),"VM registry generation change is rejected immediately");
+    Put(A(off::StratMgrObject)+(0x201&0x1ffu)*8,uint32_t(0x201));
+    strcpy_s(ninjaClass.name,"NinjaHead");
+    Check(!t.IsPinnedVmNinja(Address(ninja)),"VM exact-name check rejects attachment prefixes");
+    strcpy_s(ninjaClass.name,"Ninja");
+    Check(reads == beforeVmReads,"VM pin validation has no generic SafeRead/VirtualQuery calls");
     const auto savedNinja=ninja.bytes,savedHead=head.bytes;
     reads=tailReads=0;for(int i=0;i<600;++i) {t.Update();Check(t.Valid() && t.Pinned(),"cached pinned validity stable");}
     Check(tailReads==0 && reads<2000,"stable Auto+ pin never refreshes full candidates; validation throttled");

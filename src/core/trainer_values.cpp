@@ -14,6 +14,10 @@ constexpr Field fields[] = {
     {"darts",      0x8C, false, 0, INT32_MAX},
     {"shurikens",  0x84, false, 0, INT32_MAX},
     {"ranx",       0xA0, false, 0, INT32_MAX},
+    // Static PC script consumers; equipment UI uses queued writes.
+    {"sword",      0x78, false, 0, 5},
+    {"belt",       0x90, false, 0, 6},
+    {"ranks",      0x80, false, 0, 63},
 };
 
 bool Pointer(uintptr_t address, uintptr_t offset, uintptr_t& result)

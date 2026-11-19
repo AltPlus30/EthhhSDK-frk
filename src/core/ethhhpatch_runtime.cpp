@@ -1612,6 +1612,8 @@ void SetOrbitEnabled(bool enabled)
     PublishOrbitTelemetry();
 }
 
+bool ExternalCameraOwned() { return g_externalCameraOwned.load(); }
+
 void InitializeCamera()
 {
     LoadOrbitTuning();

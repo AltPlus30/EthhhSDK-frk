@@ -187,6 +187,9 @@ public:
     bool  Valid() const;
     PlayerMode Mode() const { return mode_; }
     bool Pinned() const { return PinnedMode(mode_) && manual_ && manualValid_; }
+    // VM-thread only: fresh lightweight generation/registry check for the
+    // engine's current self, without a strat-list traversal or VirtualQuery.
+    bool IsPinnedVmNinja(uintptr_t self) const;
     void  SetMode(PlayerMode m);
     void  Select(uintptr_t addr);         // manual selection
     void  BeginLearning();                // six seconds of idle/move/stop; ranks, does NOT pin

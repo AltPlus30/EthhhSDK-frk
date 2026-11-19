@@ -1,5 +1,12 @@
 // Production detour on synthetic script/class objects; no game process access.
 #include "../src/core/mission_timer.cpp"
+#include "../src/core/trainer_movement.cpp"
+namespace {
+alignas(4) uint8_t movementCode[0xD320]{}, movementStrat[0x300]{};
+uint32_t movementClass[4]{};
+char movementName[] = "Ninja";
+bool movementPinned = true, hlOwned = false, cameraOwned = false;
+}
 namespace eth {
 size_t safeReads = 0, safeWrites = 0;
 uintptr_t GameAddr(uintptr_t a) { return a; }
@@ -23,18 +30,66 @@ bool SafeWriteBytes(uintptr_t a, const void* in, size_t n) {
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 }
+namespace eth::game {
+PlayerTracker& PlayerTracker::Get() { static PlayerTracker tracker; return tracker; }
+bool PlayerTracker::IsPinnedVmNinja(uintptr_t self) const {
+    return movementPinned && self == uintptr_t(movementStrat);
+}
+}
+namespace eth::input { bool NativeMovementKeysOwned() { return hlOwned; } }
+namespace eth::patch::runtime { bool ExternalCameraOwned() { return cameraOwned; } }
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %d: %s\n", __LINE__, #x); return 1; } } while (0)
 namespace {
 alignas(4) uint8_t code[0x400]{}, strat[0x310]{};
 uint32_t cls[12]{};
 char name[] = "MissionTimer";
 bool expectedSkip = false, sawExpected = false, raiseFault = false;
-void __fastcall FakeVm(void*) {
+bool expectMovement = true, sawMovement = false, nestedTimer = false;
+void MovementFixture() {
+    using namespace eth::trainer_movement;
+    const auto put = [](size_t offset, uint32_t word) { memcpy(movementCode + offset, &word, 4); };
+    put(0, 0x20); put(4, 0x34C8);
+    // Recipe details are independently checked in TrainerMovementTests.cpp.
+    // Here we test the actual shared detour's call/restoration boundaries.
+    for (const auto& site : sites) { put(site.offset - 4, site.instruction); put(site.offset, site.bits); }
+    const uint32_t jump[] = {0x0ACF0075,0x0DCE5CCF,0x0B0BCDCE};
+    const uint32_t acceleration[] = {0x0B0A0AE9,0x0B0B0BEA,0x0B0C0CEB};
+    const uint32_t correction[] = {0x5C797A00,0x3E30A3D7,0x35787902,0x5A790000,0x3DA3D70A};
+    const uint32_t result[] = {0x0C747477,0x427810A8,0x0B767478,0x5B757600,0xBDCCCCCB,0x88000000};
+    const uint32_t interpolate[] = {0x0C797475,0x0D787679,0x0B777875};
+    memcpy(movementCode + 0x2BB4, jump, sizeof(jump));
+    memcpy(movementCode + 0x3454, acceleration, sizeof(acceleration));
+    memcpy(movementCode + 0x2338, correction, sizeof(correction));
+    memcpy(movementCode + 0x2354, result, sizeof(result));
+    memcpy(movementCode + 0x2DD8, interpolate, sizeof(interpolate));
+    put(0x2C88, 0x0A0B0075);
+    movementClass[1] = uintptr_t(movementName);
+    movementClass[3] = uintptr_t(movementCode);
+    movementClass[2] = movementClass[3] + 0x47D0;
+    const uint32_t cls = uintptr_t(movementClass);
+    memcpy(movementStrat + 0x1A8, &cls, 4);
+}
+void __fastcall FakeVm(void* self) {
     using namespace eth::mission_timer;
+    if (self == movementStrat) {
+        float cap = 0, impulse = 0;
+        memcpy(&cap, movementCode + 0x3030, 4);
+        memcpy(&impulse, movementCode + 0x2300, 4);
+        sawMovement = std::fabs(cap - (expectMovement ? 0.23f : 0.115f)) < 0.000001f &&
+            std::fabs(impulse - (expectMovement ? 0.28f : 0.19f)) < 0.000001f;
+        if (nestedTimer) VmDetour(strat, nullptr);
+        if (raiseFault) RaiseException(0xE0123456, 0, 0, nullptr);
+        return;
+    }
     uint32_t word = 0;
     memcpy(&word, reinterpret_cast<void*>(cls[3] + kCountdownOffset), 4);
     sawExpected = word == (expectedSkip ? kSkipCountdown : kCountdown[0]);
     if (raiseFault) RaiseException(0xE0123456, 0, 0, nullptr);
+}
+bool InvokeMovementWithFault() {
+    __try { eth::mission_timer::VmDetour(movementStrat, nullptr); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return true; }
+    return false;
 }
 bool InvokeWithFault() {
     __try { eth::mission_timer::VmDetour(strat, nullptr); }
@@ -78,7 +133,9 @@ int main()
     memcpy(code + kCountdownOffset, kCountdown, sizeof(kCountdown));
     original = reinterpret_cast<VmFn>(&FakeVm);
     CHECK(!SetStopped("trainer", true)); // Hook unavailable.
+    CHECK(!Available());
     installed = true;
+    CHECK(Available());
     CHECK(!SetStopped("", true));
     VmDetour(strat, nullptr);
     CHECK(sawExpected); // Disabled path does not touch script.
@@ -137,6 +194,34 @@ int main()
     CHECK(!memcmp(code + kCountdownOffset, kCountdown, sizeof(kCountdown))); // Foreign word not overwritten.
     CHECK(eth::safeReads == 0 && eth::safeWrites == 0);
 
+    MovementFixture();
+    CHECK(eth::trainer_movement::Set("trainer", 2, 2));
+    CHECK(SetStopped("trainer", true));
+    expectedSkip = true; nestedTimer = true;
+    VmDetour(movementStrat, nullptr); // Native jump VM -> nested timer VM.
+    CHECK(sawMovement && sawExpected);
+    CHECK(!memcmp(code + kCountdownOffset, kCountdown, sizeof(kCountdown)));
+    float restored = 0;
+    memcpy(&restored, movementCode + 0x3030, 4);
+    CHECK(std::fabs(restored - 0.115f) < 0.000001f);
+    nestedTimer = false;
+    raiseFault = true;
+    CHECK(InvokeMovementWithFault() && sawMovement);
+    raiseFault = false;
+    memcpy(&restored, movementCode + 0x3030, 4);
+    CHECK(std::fabs(restored - 0.115f) < 0.000001f);
+    expectMovement = false;
+    hlOwned = true;
+    VmDetour(movementStrat, nullptr); CHECK(sawMovement);
+    hlOwned = false; cameraOwned = true;
+    VmDetour(movementStrat, nullptr); CHECK(sawMovement);
+    cameraOwned = false; movementPinned = false;
+    VmDetour(movementStrat, nullptr); CHECK(sawMovement);
+    movementPinned = true;
+    eth::trainer_movement::Release("trainer");
+    Release("trainer");
+    expectedSkip = false;
+
     // Most VM calls are not MissionTimer. No cached negative identities required.
     name[0] = 'X';
     constexpr size_t calls = 200000;
@@ -150,5 +235,6 @@ int main()
                 calls, legacyMs, directMs, legacyMs / (std::max)(directMs, 0.000001));
     installed = false; // No real hook was installed.
     Shutdown();
+    CHECK(!Available());
     std::puts("Mission timer detour: opt-in, ownership, fingerprint, restoration and SEH checks passed");
 }

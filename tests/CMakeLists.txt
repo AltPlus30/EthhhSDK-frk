@@ -3,7 +3,10 @@ add_executable(eth_trainer_value_tests TrainerValueTests.cpp)
 target_include_directories(eth_trainer_value_tests PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/imgui)
 add_executable(eth_trainer_lua_tests TrainerLuaTests.cpp)
 target_link_libraries(eth_trainer_lua_tests PRIVATE lua54)
-foreach(target IN ITEMS eth_trainer_value_tests eth_trainer_lua_tests)
+add_executable(eth_trainer_equipment_tests TrainerEquipmentTests.cpp)
+target_include_directories(eth_trainer_equipment_tests PRIVATE ${ETH_ROOT}/src/core ${ETH_TP}/imgui)
+add_executable(eth_trainer_movement_tests TrainerMovementTests.cpp)
+foreach(target IN ITEMS eth_trainer_value_tests eth_trainer_lua_tests eth_trainer_equipment_tests eth_trainer_movement_tests)
   set_target_properties(${target} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/tests/interop"
     RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/tests/interop")

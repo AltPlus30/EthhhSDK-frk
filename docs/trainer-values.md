@@ -39,8 +39,10 @@ Let `P = [exe + 0x11AA88]` (32-bit pointer). Offsets are hexadecimal:
 | Shurikens / `shurikens` | `P+84` | int32 |
 | Ranx bank / `ranx` | `P+A0` | int32 |
 
-**Ranx currency is not earned ranks/grades.** This mapping does not expose
-arbitrary inventory unlocks, equipment, ranks or mission completion.
+**Ranx currency is not earned ranks/grades.** The normal value panel does not
+expose arbitrary inventory unlocks or mission completion. Separate opt-in
+[equipment/rank controls](trainer-experimental.md) use their own
+one-shot tick queue, not the value-freeze UI.
 
 For `multiplier`, start at `exe+0xED8A0`. At each step, dereference a 32-bit
 pointer and add the next offset: `0, 4, 24, 44, 0, D8, 138`. Read/write the
@@ -111,6 +113,11 @@ with a modest one-shot edit, then freeze/unfreeze. Check health/damage, rage
 consumption, spending, score awards/multiplier decay and ammo use; repeat around
 respawn/loading and trainer disable/re-enable. Avoid CE freezing the same field
 at the same time.
+
+**2026-11-19 update:** the user confirmed that the value, movement and equipment
+controls work well in-game. Sword/belt appearance can lag until an attack.
+The newly expanded movement factors above 2× are not covered by that acceptance;
+the panel warns about their risks.
 
 Movement and equipment findings are tracked separately in
 [`trainer-movement-equipment-research.md`](trainer-movement-equipment-research.md).
