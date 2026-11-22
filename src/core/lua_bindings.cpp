@@ -13,6 +13,11 @@
 #include "trainer_values.h"
 #include "trainer_equipment.h"
 #include "trainer_movement.h"
+#include "cosmetic_editor.h"
+#include "cosmetic_blood.h"
+#include "cosmetic_glow.h"
+#include "ethhhpatch_runtime.h"
+#include "cosmetic_model_host.h"
 
 extern "C" {
 #include "lua.h"
@@ -89,6 +94,197 @@ int PushStratTable(lua_State* L, const game::StratView& s, float camDist = -1.0f
 
 // ------------------------------------------------------------------ game ----
 int g_tick(lua_State* L)        { lua_pushinteger(L, game::TickCount()); return 1; }
+int g_cosmetic_materials(lua_State* L)
+{
+    const auto view = cosmetic::Inspect();
+    lua_newtable(L);
+    int i = 0;
+    for (const auto& material : view.materials) {
+        lua_newtable(L);
+        lua_pushlstring(L, material.name.data(), material.name.size()); lua_setfield(L, -2, "name");
+        lua_pushinteger(L, material.rgb); lua_setfield(L, -2, "rgb");
+        lua_pushlstring(L,material.part.data(),material.part.size()); lua_setfield(L,-2,"part");
+        lua_rawseti(L, -2, ++i);
+    }
+    lua_pushlstring(L, view.status.data(), view.status.size());
+    lua_pushboolean(L, view.active);
+    lua_newtable(L);
+    lua_pushboolean(L,view.waiting); lua_setfield(L,-2,"waiting");
+    lua_pushinteger(L,view.heads); lua_setfield(L,-2,"heads");
+    lua_pushboolean(L,view.textures); lua_setfield(L,-2,"textures");
+    lua_pushinteger(L,lua_Integer(view.texturePasses)); lua_setfield(L,-2,"texture_passes");
+    lua_pushinteger(L,lua_Integer(view.textureRefusals)); lua_setfield(L,-2,"texture_refusals");
+    const auto textureStats=cosmetic::textures::GetPerformanceCounters();
+    lua_pushinteger(L,lua_Integer(textureStats.uploads)); lua_setfield(L,-2,"texture_uploads");
+    lua_pushinteger(L,lua_Integer(view.fullInspections)); lua_setfield(L,-2,"full_inspections");
+    lua_pushinteger(L,lua_Integer(view.fastTicks)); lua_setfield(L,-2,"fast_ticks");
+    lua_pushnumber(L,view.lastTickUs/1000.0); lua_setfield(L,-2,"tick_ms");
+    lua_pushnumber(L,view.maxTickUs/1000.0); lua_setfield(L,-2,"peak_tick_ms");
+    lua_pushnumber(L,view.lastFullTickUs/1000.0); lua_setfield(L,-2,"inspection_ms");
+    lua_pushlstring(L,view.textureStatus.data(),view.textureStatus.size()); lua_setfield(L,-2,"texture_status");
+    lua_pushlstring(L,view.sashStatus.data(),view.sashStatus.size()); lua_setfield(L,-2,"sash_status");
+    return 4;
+}
+int g_set_cosmetic_textures(lua_State* L)
+{
+    std::string error;
+    std::vector<std::string> paths;
+    if (!lua_istable(L,1) || lua_rawlen(L,1)!=3) error="Expected blue, secondary-body and head relative TGA paths.";
+    for (int i=1;i<=3 && error.empty();++i) {
+        lua_rawgeti(L,1,i);
+        size_t length=0;
+        const char* path=lua_type(L,-1)==LUA_TSTRING?lua_tolstring(L,-1,&length):nullptr;
+        if (!path || !length || length>512) error="Invalid relative TGA path.";
+        else paths.emplace_back(path,length);
+        lua_pop(L,1);
+    }
+    const auto* mod=mods::ModManager::Get().Find(ModId(L));
+    if (!mod && error.empty()) error="Mod identity unavailable.";
+    const bool ok=error.empty() && cosmetic::LoadTextures(mod->id,mod->dir,paths,error,lua_toboolean(L,2)!=0);
+    lua_pushboolean(L,ok);
+    lua_pushlstring(L,error.data(),error.size());
+    return 2;
+}
+int g_clear_cosmetic_textures(lua_State* L)
+{
+    cosmetic::ClearTextures(ModId(L)); return 0;
+}
+int g_set_cosmetic_blood(lua_State* L)
+{
+    std::string error;
+    std::vector<std::string> paths;
+    if (!lua_istable(L,1) || lua_rawlen(L,1)!=5) error="Expected five relative blood TGA paths.";
+    for (int i=1;i<=5 && error.empty();++i) {
+        lua_rawgeti(L,1,i);
+        size_t length=0;
+        const char* path=lua_type(L,-1)==LUA_TSTRING?lua_tolstring(L,-1,&length):nullptr;
+        if (!path || !length || length>512) error="Invalid relative blood TGA path.";
+        else paths.emplace_back(path,length);
+        lua_pop(L,1);
+    }
+    int isInteger=0;
+    const auto rgb=lua_tointegerx(L,2,&isInteger);
+    if (!isInteger || rgb<0 || rgb>0xFFFFFF) error="Expected packed RGB color.";
+    const auto* mod=mods::ModManager::Get().Find(ModId(L));
+    if (!mod && error.empty()) error="Mod identity unavailable.";
+    if (error.empty() && !patch::runtime::InstallCosmeticBloodHook())
+        error="Blood binder verification/hook installation refused.";
+    const auto native=uint32_t(rgb);
+    const auto textureRgb=((native&255)<<16)|(native&0xFF00)|((native>>16)&255);
+    const bool wantGlow=lua_toboolean(L,3)!=0;
+    const bool glowReady=error.empty() && wantGlow && patch::runtime::InstallCosmeticGlowHooks();
+    const bool ok=error.empty() && cosmetic::blood::Configure(mod->id,mod->dir,paths,textureRgb,error,glowReady);
+    if (ok && wantGlow && !glowReady) error="Blood/interior colors armed; glow hook verification refused. Glow stays native.";
+    lua_pushboolean(L,ok); lua_pushlstring(L,error.data(),error.size());
+    return 2;
+}
+int g_clear_cosmetic_blood(lua_State* L)
+{
+    cosmetic::blood::Release(ModId(L)); return 0;
+}
+int g_set_cosmetic_glow_enabled(lua_State* L)
+{
+    const bool enabled=lua_toboolean(L,1)!=0;
+    std::string error;
+    if (enabled && !patch::runtime::InstallCosmeticGlowHooks()) error="Glow hook verification refused.";
+    const bool ok=error.empty() && cosmetic::blood::SetGlowEnabled(ModId(L),enabled);
+    if (!ok && error.empty()) error="Apply blood color first; this choice will apply with the next color request.";
+    lua_pushboolean(L,ok); lua_pushlstring(L,error.data(),error.size()); return 2;
+}
+int g_cosmetic_blood_status(lua_State* L)
+{
+    const auto stats=cosmetic::blood::GetPerformanceCounters();
+    const auto glow=cosmetic::blood::glow::GetStats();
+    const auto text=std::string("Blood draw substitutions: ")+std::to_string(stats.substitutions)+
+        " (splatter "+std::to_string(stats.kinds[0]+stats.kinds[1]+stats.kinds[2]+stats.kinds[3])+
+        ", pools "+std::to_string(stats.kinds[4]+stats.kinds[5]+stats.kinds[6])+")\nSource SHA: "+
+        std::to_string(stats.hashes)+"; split interiors: "+std::to_string(stats.kinds[7])+
+        "; byte-verdict reuse: "+std::to_string(stats.byteCacheHits)+
+        "; uploads: "+std::to_string(stats.uploads)+
+        "; deferred: "+std::to_string(stats.deferred)+"; cache full: "+std::to_string(stats.saturated)+
+        "\nBlood SDK tick work (last / peak, includes cold uploads): "+
+        std::to_string(stats.lastTickUs/1000.0)+" / "+std::to_string(stats.maxTickUs/1000.0)+" ms\nShared glow: "+
+        (glow.faulted?"stopped after a state-restore failure":glow.enabled?"armed":"native")+
+        "; draws "+std::to_string(glow.draws)+"; refused "+std::to_string(glow.refused)+
+        "; uploads "+std::to_string(glow.uploads)+"; color op/args "+
+        std::to_string(glow.colorOp)+"/"+std::to_string(glow.arg1)+"/"+std::to_string(glow.arg2);
+    lua_pushlstring(L,text.data(),text.size()); return 1;
+}
+int g_cosmetic_models(lua_State* L)
+{
+    const auto view = cosmetic::model_host::Inspect(lua_toboolean(L, 1) != 0);
+    lua_newtable(L);
+    int i = 0;
+    for (const auto& candidate : view.candidates) {
+        lua_newtable(L);
+        lua_pushinteger(L,candidate.addr); lua_setfield(L,-2,"addr");
+        lua_pushlstring(L,candidate.name.data(),candidate.name.size()); lua_setfield(L,-2,"name");
+        lua_rawseti(L,-2,++i);
+    }
+    lua_pushlstring(L,view.status.data(),view.status.size());
+    lua_newtable(L);
+    lua_pushinteger(L,view.captured); lua_setfield(L,-2,"captured");
+    lua_pushinteger(L,view.substituted); lua_setfield(L,-2,"substituted");
+    lua_pushinteger(L,view.waiting); lua_setfield(L,-2,"waiting");
+    lua_pushinteger(L,view.refused); lua_setfield(L,-2,"refused");
+    return 3;
+}
+int g_set_cosmetic_model(lua_State* L)
+{
+    const char* channel = luaL_checkstring(L,1);
+    const auto recipient = luaL_checkinteger(L,2), donor = luaL_checkinteger(L,3);
+    const bool sword = !strcmp(channel,"sword");
+    lua_pushboolean(L, (!strcmp(channel,"player") || sword) &&
+        recipient >= 0 && recipient <= UINT32_MAX && donor > 0 && donor <= UINT32_MAX &&
+        cosmetic::model_host::RequestDonor(ModId(L),sword,uintptr_t(recipient),uintptr_t(donor)));
+    return 1;
+}
+int g_set_cosmetic_sword(lua_State* L)
+{
+    const auto sword = luaL_checkinteger(L,1), tier = luaL_checkinteger(L,2);
+    lua_pushboolean(L, sword > 0 && sword <= UINT32_MAX && tier >= 0 && tier <= 5 &&
+        cosmetic::model_host::RequestSword(ModId(L),uintptr_t(sword),int(tier)));
+    return 1;
+}
+int g_clear_cosmetic_models(lua_State* L)
+{
+    cosmetic::model_host::Release(ModId(L)); return 0;
+}
+int g_set_cosmetic_colors(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    const size_t count = lua_rawlen(L, 1);
+    if (count > 128) { lua_pushboolean(L, false); return 1; }
+    std::vector<cosmetic::Material> colors;
+    for (size_t i = 1; i <= count; ++i) {
+        lua_rawgeti(L, 1, int(i));
+        luaL_checktype(L, -1, LUA_TTABLE);
+        lua_getfield(L, -1, "name");
+        size_t length = 0;
+        const char* name = luaL_checklstring(L, -1, &length);
+        const std::string bounded(name, length);
+        lua_pop(L, 1);
+        lua_getfield(L, -1, "rgb");
+        const auto rgb = luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L,-1,"part");
+        size_t partLength = 0;
+        const char* part = luaL_optlstring(L,-1,"body",&partLength);
+        const std::string scope(part,partLength);
+        lua_pop(L, 2);
+        if (rgb < 0 || rgb > 0xFFFFFF || bounded.find('\0') != std::string::npos) {
+            lua_pushboolean(L, false); return 1;
+        }
+        colors.push_back({bounded, uint32_t(rgb),scope});
+    }
+    lua_pushboolean(L, cosmetic::Set(ModId(L), colors));
+    return 1;
+}
+int g_clear_cosmetic_colors(lua_State* L)
+{
+    cosmetic::Release(ModId(L));
+    return 0;
+}
 int g_frame(lua_State* L)       { lua_pushinteger(L, game::FrameCount()); return 1; }
 int g_time(lua_State* L)        { lua_pushnumber(L, game::GameTime()); return 1; }
 int g_time_step(lua_State* L)   { lua_pushnumber(L, game::TimeStep()); return 1; }
@@ -636,6 +832,19 @@ void RegisterApi(lua_State* L, const mods::ModInfo& mod)
         { "time_step", g_time_step }, { "timescale", g_timescale }, { "set_timescale", g_set_timescale },
         { "stop_mission_timer", g_stop_mission_timer },
         { "trainer_supported", g_trainer_supported },
+        { "cosmetic_materials", g_cosmetic_materials },
+        { "set_cosmetic_textures", g_set_cosmetic_textures },
+        { "clear_cosmetic_textures", g_clear_cosmetic_textures },
+        { "set_cosmetic_blood", g_set_cosmetic_blood },
+        { "clear_cosmetic_blood", g_clear_cosmetic_blood },
+        { "cosmetic_blood_status", g_cosmetic_blood_status },
+        { "set_cosmetic_glow_enabled", g_set_cosmetic_glow_enabled },
+        { "cosmetic_models", g_cosmetic_models },
+        { "set_cosmetic_model", g_set_cosmetic_model },
+        { "set_cosmetic_sword", g_set_cosmetic_sword },
+        { "clear_cosmetic_models", g_clear_cosmetic_models },
+        { "set_cosmetic_colors", g_set_cosmetic_colors },
+        { "clear_cosmetic_colors", g_clear_cosmetic_colors },
         { "trainer_value", g_trainer_value }, { "set_trainer_value", g_set_trainer_value },
         { "set_trainer_equipment", g_set_trainer_equipment },
         { "trainer_equipment_status", g_trainer_equipment_status },

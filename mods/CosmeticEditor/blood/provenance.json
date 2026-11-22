@@ -1,0 +1,48 @@
+{
+  "description": "Supplied monochrome edits, not original game textures; decoded alpha compared byte-for-byte offline.",
+  "source_directory": "D:\\AI\\opencode\\temp\\ininja-blood-monochrome",
+  "original_metadata": "build/blood-textures/provenance.json",
+  "alpha_layout": "one byte per pixel, decoded top-left row-major",
+  "textures": [
+    {
+      "filename": "blood-splatter-0-original-A001e0060.tga",
+      "width": 32,
+      "height": 32,
+      "sha256": "f43c22dfaf8986b4c5b255ed08d8aa426f85d385c17cc1206c9f1bc635b54576",
+      "original_sha256": "db74cc596032f738f79efacff7d7458c7f74f8bedcbf788d4793b5209b77907d",
+      "alpha_sha256": "4aa9b5055317640dce366ab411aabbcd44e7dfcc1e2ce59271d7a8b5f77b4192"
+    },
+    {
+      "filename": "blood-splatter-1-original-A001dfc20.tga",
+      "width": 32,
+      "height": 32,
+      "sha256": "2667e099863b6e4a50bad6614145a262ffcf73326dcf5af9bace573a9bc85ff9",
+      "original_sha256": "ea28e3a9dd00917e68adc5dc5ee5d188b9a87cec1f4b4213e729368b402b1481",
+      "alpha_sha256": "9de81e8d6f29eb82017ddfee24c71e9960f4f05655a7b71a58473d10887d8b1d"
+    },
+    {
+      "filename": "blood-splatter-2-original-A001df7e0.tga",
+      "width": 32,
+      "height": 32,
+      "sha256": "03ae8b6c58d6de717085585ec6b13a0be208b203d0e93277ff582f44c751cb0d",
+      "original_sha256": "f68aee3ba871deab29fc94333e3253fe059e772a319c217b59cf784317d2fe04",
+      "alpha_sha256": "55d76999be39d79d39efdd2b25d7f7320892eefda8aacaef230f65ded5b9e73b"
+    },
+    {
+      "filename": "blood-splatter-3-original-A001df3a0.tga",
+      "width": 32,
+      "height": 32,
+      "sha256": "4e524dea4c918ff886d4bfd44e4a884128778694fff20e0d738a05a4aae94e9e",
+      "original_sha256": "136d3d094796f53cea81e94b2fcb38c1d4d498cd36d1128043eedca2ce794dbb",
+      "alpha_sha256": "f6f3c37b3aba251a9bb46988c3c4f69bd622fe6bce78fb0f6ad2dc3aa466804f"
+    },
+    {
+      "filename": "green-blood-pool-original-A001c7de0.tga",
+      "width": 64,
+      "height": 64,
+      "sha256": "ac7007fed17fd6978eec3cbd3f9d1cad2b75d66d0841b917fb36a5599855da1e",
+      "original_sha256": "faa3da9594ae2e9d503b78c9a9163b279ef6e7e1494a90387e919a4006d2f9dd",
+      "alpha_sha256": "eab5b57892444f9a2cef76b3a931052040fc7f1f1c2faa95b6d24c83cdf86195"
+    }
+  ]
+}

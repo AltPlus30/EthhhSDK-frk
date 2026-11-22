@@ -8,6 +8,11 @@ namespace eth::patch::runtime {
 
 // Display hooks are lazy; camera hooks have an independent lifetime.
 bool InstallHooks(bool cameraOnly = false);
+bool InstallCosmeticHooks();
+bool InstallCosmeticTextureHooks();
+bool InstallCosmeticBloodHook();
+bool InstallCosmeticGlowHooks();
+bool InNativeRender();
 void InitializeCamera();
 void Shutdown();
 bool HooksReady();

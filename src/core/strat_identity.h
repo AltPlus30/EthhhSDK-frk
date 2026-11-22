@@ -21,8 +21,10 @@ inline StratRole ClassRole(const char* name)
 
 inline bool HasKnownOwnerField(const char* name)
 {
-    // Only these classes have corroborated +0x238 owner-handle evidence.
-    return name && (!strcmp(name, "NinjaRageAttachment") || !strcmp(name, "NinjaSpeech") || !strcmp(name, "Camera"));
+    // NinjaHead creation/attachment chain corroborated 2026-11-20; see
+    // docs/cosmetic-head-blood-research.md. NinjaSword remains unverified.
+    return name && (!strcmp(name, "NinjaHead") || !strcmp(name, "NinjaRageAttachment") ||
+        !strcmp(name, "NinjaSpeech") || !strcmp(name, "Camera"));
 }
 
 template<class Read>

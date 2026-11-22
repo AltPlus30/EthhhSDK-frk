@@ -1,0 +1,21 @@
+{
+  "id": "cosmetic-editor",
+  "name": "Cosmetic Editor",
+  "version": "0.5.0",
+  "author": "EthhhSDK",
+  "description": "Lower-overhead colors, moving sash, prepared textures, blood pools, split interiors and independently revertible shared cut glow. No progression edits.",
+  "type": "lua",
+  "entry": "mod.lua",
+  "assets": [
+    "textures/ninja-blue-original-A00063740.tga",
+    "textures/ninja-body-secondary-original-A00073a80.tga",
+    "textures/ninja-head-original-A001b0720.tga",
+    "blood/blood-splatter-0-original-A001e0060.tga",
+    "blood/blood-splatter-1-original-A001dfc20.tga",
+    "blood/blood-splatter-2-original-A001df7e0.tga",
+    "blood/blood-splatter-3-original-A001df3a0.tga",
+    "blood/green-blood-pool-original-A001c7de0.tga"
+  ],
+  "api": 1,
+  "enabled": false
+}

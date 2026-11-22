@@ -5,6 +5,9 @@
 #include "mission_timer.h"
 #include "trainer_equipment.h"
 #include "trainer_movement.h"
+#include "cosmetic_editor.h"
+#include "cosmetic_blood.h"
+#include "cosmetic_model_host.h"
 
 extern "C" {
 #include "lua.h"
@@ -122,6 +125,9 @@ void CallHooks(LuaMod& m, const char* event, int nargs = 0, std::function<void(l
                 mission_timer::Release(m.id);
                 trainer::equipment::Release(m.id);
                 trainer_movement::Release(m.id);
+                cosmetic::Release(m.id);
+                cosmetic::blood::Release(m.id);
+                cosmetic::model_host::Release(m.id);
                 ETH_ERROR("lua[%s]: too many errors, mod disabled", m.id.c_str());
                 mods::ModManager::Get().SetStatus(m.id, "error: " + err);
                 break;
@@ -207,6 +213,9 @@ bool LoadMod(mods::ModInfo& mod)
         mission_timer::Release(mod.id);
         trainer::equipment::Release(mod.id);
         trainer_movement::Release(mod.id);
+        cosmetic::Release(mod.id);
+        cosmetic::blood::Release(mod.id);
+        cosmetic::model_host::Release(mod.id);
         return false;
     }
 
@@ -228,6 +237,9 @@ void UnloadMod(const std::string& id)
     mission_timer::Release(id);
     trainer::equipment::Release(id);
     trainer_movement::Release(id);
+    cosmetic::Release(id);
+    cosmetic::blood::Release(id);
+    cosmetic::model_host::Release(id);
     g_mods.erase(it);
     if (auto* mi = mods::ModManager::Get().Find(id)) {
         mi->loaded = false;
@@ -243,6 +255,9 @@ void UnloadAll()
         mission_timer::Release(kv.first);
         trainer::equipment::Release(kv.first);
         trainer_movement::Release(kv.first);
+        cosmetic::Release(kv.first);
+        cosmetic::blood::Release(kv.first);
+        cosmetic::model_host::Release(kv.first);
     }
     g_mods.clear();
 }

@@ -17,8 +17,10 @@ older inferred player claims for the fingerprinted executable only.
   SDK resolution also checks slot stability, live-list membership and owner's
   self handle. An unresolved owner address is `0`, not a guessed nearby object.
 - `+0x238` is reported as a raw field for all identities, but owner resolution is
-  enabled only for corroborated `NinjaRageAttachment`, `NinjaSpeech`, and `Camera`.
-  Do not assume `NinjaHead` or `NinjaSword` share that contract.
+  enabled only for corroborated `NinjaHead`, `NinjaRageAttachment`, `NinjaSpeech`,
+  and `Camera`. `NinjaHead` was added following the verified creation/attachment
+  chain in [the head/blood evidence](cosmetic-head-blood-research.md).
+  Do not assume `NinjaSword` shares that contract.
 - Read-only addresses: model/resource `+0x268`, animation/control `+0x26C`,
   node-matrix storage `+0x13C`. They are diagnostic pointers, **not** CStrats,
   iterable arrays with verified counts, or approved engine-call arguments.

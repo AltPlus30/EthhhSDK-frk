@@ -12,6 +12,9 @@
 #include "mission_timer.h"
 #include "trainer_equipment.h"
 #include "trainer_movement.h"
+#include "cosmetic_editor.h"
+#include "cosmetic_blood.h"
+#include "cosmetic_model_host.h"
 
 #include <MinHook.h>
 
@@ -83,6 +86,8 @@ void __fastcall TickDetour(void* self, void* /*edx*/, int tickIndex)
     input::PumpCapture();
     input::BeginNativeTick();
     patch::runtime::BeginNativeMovementTick();
+    cosmetic::BeforeNativeTick();
+    cosmetic::blood::BeforeNativeTick();
     __try { if (g_tickOrig) g_tickOrig(self, tickIndex); }
     __finally { patch::runtime::EndNativeMovementTick(); input::EndNativeTick(); }
 
@@ -92,6 +97,9 @@ void __fastcall TickDetour(void* self, void* /*edx*/, int tickIndex)
     overlay::OnGameTick();
     game::PlayerTracker::Get().Update();
     trainer::equipment::OnNativeTickCompleted();
+    cosmetic::model_host::OnNativeTickCompleted();
+    cosmetic::OnNativeTickCompleted();
+    cosmetic::blood::Tick();
     mods::ModManager::Get().Tick(tickIndex);
 
     RunTickCallbacks(tickIndex);
@@ -132,7 +140,10 @@ HRESULT WINAPI ResetDetour(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* pp)
         __try { memcpy(&requested, pp, sizeof(requested)); captured = true; }
         __except (EXCEPTION_EXECUTE_HANDLER) { captured = false; }
     }
-    if (gameDevice) overlay::OnDeviceReset(true, device);
+    if (gameDevice) {
+        cosmetic::blood::OnDeviceReset();
+        overlay::OnDeviceReset(true, device);
+    }
     HRESULT hr = g_resetOrig ? g_resetOrig(device, pp) : D3D_OK;
     if (gameDevice) {
         patch::OnReset(captured ? &requested : nullptr, hr);
@@ -391,6 +402,9 @@ void Shutdown()
     mission_timer::Shutdown();
     trainer::equipment::Shutdown();
     trainer_movement::Shutdown();
+    cosmetic::Shutdown();
+    cosmetic::blood::Shutdown();
+    cosmetic::model_host::Shutdown();
     if (g_hookedHwnd && g_oldWndProc) {
         SetWindowLongPtrA(g_hookedHwnd, GWLP_WNDPROC, (LONG_PTR)g_oldWndProc);
         g_oldWndProc = nullptr;

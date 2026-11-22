@@ -61,7 +61,8 @@ int main()
     Check(ClassRole("Ninja")==StratRole::Ninja && !HasKnownOwnerField("Ninja"),"root is not an attachment owner consumer");
     for(const char* text : {"ninja","NinjaHeadExtra","NinjaClone"," Ninja","Ninja "})
         Check(ClassRole(text)==StratRole::Other,"no prefix/case/proximity identity guessing");
-    Check(!HasKnownOwnerField("NinjaHead") && !HasKnownOwnerField("NinjaSword"),"unknown attachment owner fields not inferred");
+    Check(HasKnownOwnerField("NinjaHead") && !HasKnownOwnerField("NinjaSword"),
+        "head creation/attachment owner verified; sword owner not inferred");
     Check(ClassRole(nullptr)==StratRole::Unknown && !HasKnownOwnerField(nullptr),"null role policy");
     const uintptr_t manager=0x4000;
     const uint32_t handle=0x200001ff;

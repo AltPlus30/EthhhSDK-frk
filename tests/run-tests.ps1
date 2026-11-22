@@ -14,7 +14,7 @@ foreach ($file in @('EthhhSDK.dll','EthhhSDK.Managed.dll','mods\HalfLifeMovement
 }
 & $cmake -S $root -B $build -G 'Visual Studio 17 2022' -A Win32 -DETH_BUILD_TESTS=ON
 if ($LASTEXITCODE -ne 0) { throw 'Test configure failed.' }
-& $cmake --build $build --config $Configuration --target eth_trainer_value_tests eth_trainer_lua_tests eth_trainer_equipment_tests eth_trainer_movement_tests eth_mission_timer_tests
+& $cmake --build $build --config $Configuration --target eth_trainer_value_tests eth_trainer_lua_tests eth_trainer_equipment_tests eth_trainer_movement_tests eth_mission_timer_tests eth_cosmetic_editor_tests eth_cosmetic_host_tests eth_cosmetic_model_tests eth_cosmetic_head_tests eth_cosmetic_texture_tests eth_cosmetic_blood_tests eth_cosmetic_glow_tests eth_cosmetic_blood_fx_tests eth_cosmetic_sash_tests
 if ($LASTEXITCODE -ne 0) { throw 'Trainer test build failed.' }
 & "$out\eth_trainer_value_tests.exe"
 if ($LASTEXITCODE -ne 0) { throw 'Trainer value regression failed.' }
@@ -30,6 +30,40 @@ if ($LASTEXITCODE -ne 0) { throw 'Movement/equipment trainer Lua regression fail
 if ($LASTEXITCODE -ne 0) { throw 'Native movement recipe regression failed.' }
 & "$out\eth_mission_timer_tests.exe"
 if ($LASTEXITCODE -ne 0) { throw 'Shared trainer VM detour regression failed.' }
+& "$out\eth_cosmetic_editor_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic editor regression failed.' }
+& "$out\eth_cosmetic_head_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic head regression failed.' }
+& "$out\eth_cosmetic_sash_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic sash regression failed.' }
+& "$out\eth_cosmetic_blood_tests.exe" "$root\mods\CosmeticEditor\blood" "$root\build\blood-textures" "$root\build\blood-v05-originals" "$root\build\blood-v05-split-verified"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic blood regression failed.' }
+& "$out\eth_cosmetic_blood_fx_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic blood FX schema regression failed.' }
+& "$out\eth_cosmetic_glow_tests.exe" "$root\build\blood-v05-split-verified"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic shared glow restoration regression failed.' }
+if (Test-Path "$root\build\cosmetic-textures\ninja-blue-original-A00063740.tga") {
+    & "$out\eth_cosmetic_texture_tests.exe" "$root\mods\CosmeticEditor\textures" "$root\build\cosmetic-textures"
+    if ($LASTEXITCODE -ne 0) { throw 'Cosmetic texture binding regression failed.' }
+} else {
+    Write-Output 'SKIP cosmetic original-source hash fixtures: run tools/extract-ninja-cosmetic-textures.py first.'
+}
+& "$out\eth_cosmetic_host_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic model host regression failed.' }
+& "$out\eth_cosmetic_model_tests.exe"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic native model regression failed.' }
+& "$out\eth_trainer_lua_tests.exe" "$root\tests\cosmetic-editor.lua" "$root\mods\CosmeticEditor\mod.lua"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic editor Lua regression failed.' }
+& "$out\eth_trainer_lua_tests.exe" "$root\tests\cosmetic-texture-ui.lua" "$root\mods\CosmeticEditor\mod.lua"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic texture UI regression failed.' }
+& "$out\eth_trainer_lua_tests.exe" "$root\tests\cosmetic-performance-ui.lua" "$root\mods\CosmeticEditor\mod.lua"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic performance UI regression failed.' }
+& "$out\eth_trainer_lua_tests.exe" "$root\tests\cosmetic-models.lua" "$root\mods\CosmeticEditor\mod.lua"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic model Lua regression failed.' }
+& python "$root\tests\test_cosmetic_textures.py"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic texture extraction regression failed.' }
+& python "$root\tests\test_cosmetic_packaging.py"
+if ($LASTEXITCODE -ne 0) { throw 'Cosmetic packaging regression failed.' }
 & $cmake --build $build --config $Configuration --target eth_test_native eth_player_learning_tests eth_player_tracker_tests eth_ui_motion_tests eth_pestcontrol_tests eth_pestcontrol_runtime_tests eth_chrome_preview eth_strat_identity_tests eth_ethhhpatch_policy_tests eth_ethhhpatch_projection_tests eth_ethhhpatch_camera_tests eth_ethhhpatch_interpolation_tests eth_ethhhpatch_entity_tests eth_entity_performance_tests eth_movement_input_tests eth_mouse_attack_tests eth_ethhhpatch_lens_tests eth_sha256_tests eth_camera_relative_heading_tests eth_display_config_tests eth_overlay_cursor_tests --parallel 6
 if ($LASTEXITCODE -ne 0) { throw 'Native test shim build failed.' }
 & powershell -NoProfile -ExecutionPolicy Bypass -File "$root\tools\stage-notices.ps1"

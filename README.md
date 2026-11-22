@@ -51,8 +51,19 @@ be installed into the game directory.
   with explicit Apply/Stop and no experimental enable toggle.
   The user confirms the prior controls work; factors above 2× carry a warning.
   Sword/belt appearance may need one attack to update. Back up saves first.
-  [Cosmetic Editor research](docs/trainer-cosmetic-research.md) identifies
-  tint/model/texture entry points only; no cosmetic editor is implemented.
+  [Cosmetic Editor](docs/cosmetic-editor.md) is a separate, off-by-default Lua mod
+  with cosmetic-only belt/named-costume RGB tint and reversible private-instance
+  edits, verified owned-head sash/material coverage, session palette reapplication
+  after level changes, and draw-scoped user-supplied monochrome atlases.
+  Whole-headgear tint uses the ordinary parts list, with no selection mask.
+  Belt controls also cover the moving ribbon; supplied alpha-preserving blood
+  monochromes enable independent blood RGB, including three attributed Ranx pool
+  variants, split interiors and the approved shared green cut glow (independently
+  revertible). Full inspection and F9 readouts are throttled; fresh byte/lifetime
+  checks remain every tick. Live appearance/FPS remains untested.
+  Model/sword controls have user-reported no-ops and a confirmed UI index bug;
+  repairs are deferred as described in [the investigation](docs/cosmetic-model-noop-investigation.md);
+  see [the native findings](docs/trainer-cosmetic-research.md).
 - `mods/XboxPrompts/mod.lua`: Xbox icons in native embedded button prompts;
   [mapping, installation and verification status](docs/xbox-prompts.md).
 - [Generic button-prompt support](docs/button-prompts.md): mods supply their

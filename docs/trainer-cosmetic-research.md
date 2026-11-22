@@ -1,5 +1,19 @@
 # Cosmetic Editor: research only
 
+**2026-11-20 implementation follow-up:** [Cosmetic Editor](cosmetic-editor.md)
+now implements guarded belt/named-costume tint and original texture extraction.
+The dated research record below remains historical; it is not a statement that
+the editor still has no code. Loaded model/sword swapping is now implemented
+under the later [model/sword integration](cosmetic-model-swap-research.md)
+and its experimental limits. A later [draw-scoped texture implementation](cosmetic-texture-binding.md)
+supports supplied monochrome atlases; masks/blood limitations are documented
+in [the editor guide](cosmetic-editor.md).
+**Correction:** the six-tier selector's addressing mode targets shared global
+97 (`0x511324`), not actor `+0x2C0`. The native property getter alone did not
+establish that VM instruction's selector. Follow-up disassembly also shows `0x457BF0` checks the primary
+instance's ownership flag on both iterations; production checks/clones each
+slot independently instead of assuming both outputs are private.
+
 2026-11-19. **No cosmetic production code or UI was added.** No game launch,
 process attachment, live memory access, installed-file writes, or native REA
 session operations were performed. The movement investigator owns that session.

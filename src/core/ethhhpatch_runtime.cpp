@@ -16,6 +16,10 @@
 #include "log.h"
 #include "util.h"
 #include "input.h"
+#include "cosmetic_models.h"
+#include "cosmetic_editor.h"
+#include "cosmetic_blood.h"
+#include "cosmetic_glow.h"
 
 #include <MinHook.h>
 #include <intrin.h>
@@ -42,6 +46,7 @@ constexpr uintptr_t kPrimaryViewReturn = 0x43E230;
 constexpr uintptr_t kAppRender = 0x43E170;
 constexpr uintptr_t kEntitySubmit = 0x44A490;
 constexpr uintptr_t kNodeSubmit = 0x449EB0;
+constexpr uintptr_t kCosmeticFlush = 0x44A340;
 constexpr uintptr_t kBuiltinFieldGetter = 0x421680;
 constexpr uintptr_t kBuiltinFieldReturn = 0x4252EA;
 constexpr uintptr_t kNativeCameraOwner = 0x5119B8;
@@ -87,6 +92,25 @@ ViewRenderFn g_viewRenderOrig = nullptr;
 ViewRenderFn g_appRenderOrig = nullptr;
 EntitySubmitFn g_entitySubmitOrig = nullptr;
 NodeSubmitFn g_nodeSubmitOrig = nullptr;
+ViewRenderFn g_cosmeticFlushOrig = nullptr;
+std::atomic<bool> g_cosmeticHooksReady{false};
+cosmetic::textures::OpaqueDrawFn g_cosmeticOpaqueOrig = nullptr;
+cosmetic::textures::TransparentDrawFn g_cosmeticTransparentOrig = nullptr;
+std::atomic<bool> g_cosmeticTextureHooksReady{false};
+thread_local bool g_cosmeticTexturePass = false;
+cosmetic::blood::BindFn g_cosmeticBloodOrig = nullptr;
+bool g_cosmeticBloodReady = false;
+cosmetic::blood::glow::MeshSetupFn g_glowMeshOrig=nullptr;
+cosmetic::blood::glow::PrimitiveFn g_glowPrimitiveOrig=nullptr;
+bool g_glowHooksReady=false;
+void __fastcall GlowMeshDetour(void* mesh,void*) { cosmetic::blood::glow::MeshSetup(mesh,g_glowMeshOrig); }
+void __fastcall GlowPrimitiveDetour(void* primitive,void*) {
+    cosmetic::blood::glow::Primitive(primitive,g_glowPrimitiveOrig);
+}
+long __fastcall CosmeticBloodDetour(void* descriptor, void*)
+{
+    return cosmetic::blood::Bind(descriptor,g_cosmeticBloodOrig);
+}
 BuiltinFieldFn g_builtinFieldOrig = nullptr;
 movement::RoutingPolicy g_headingPolicy;
 movement::Owner g_headingCameraOwner;
@@ -878,6 +902,7 @@ void FinishEntityFrame()
 void __fastcall NodeSubmitDetour(void* self, void*, void* mesh,
     const entity::Matrix* world, const entity::Matrix* nodes)
 {
+    if (cosmetic::models::SubmitNodes(self, mesh, world, nodes, g_nodeSubmitOrig)) return;
     entity::Pose* pose = g_submittedPose;
     const entity::Matrix* supplied = nodes;
     const entity::Matrix* suppliedWorld = world;
@@ -901,7 +926,7 @@ void SubmitEntityScoped(void* self, void* owner, void* instance, const entity::M
     } __finally { g_submittedPose = previousPose; g_entitySubmission = previousSubmission; }
 }
 
-void __fastcall EntitySubmitDetour(void* self, void*, void* owner, void* instance,
+void EntitySubmitBody(void* self, void* owner, void* instance,
     const entity::Matrix* world)
 {
     if (g_entitySubmission || !g_inGameRender || !g_active.load(std::memory_order_relaxed) ||
@@ -930,6 +955,47 @@ void __fastcall EntitySubmitDetour(void* self, void*, void* owner, void* instanc
     if (pose) ++g_entityFrameTelemetry.interpolatedSubmissions;
     else ++g_entityFrameTelemetry.nativeSubmissions;
     SubmitEntityScoped(self, owner, instance, world, pose);
+}
+void __fastcall EntitySubmitDetour(void* self, void*, void* owner, void* instance,
+    const entity::Matrix* world)
+{
+    cosmetic::models::SubmitEntity(self, owner, instance, world, EntitySubmitBody, g_entitySubmitOrig);
+}
+void __fastcall CosmeticFlushDetour(void* self, void*)
+{
+    cosmetic::models::BeforeFlush(self);
+    if (g_cosmeticFlushOrig) g_cosmeticFlushOrig(self);
+}
+struct CosmeticPassContext { void* renderer; int pass; };
+void __cdecl ContinueCosmeticOpaque(void* context)
+{
+    if (g_cosmeticOpaqueOrig) g_cosmeticOpaqueOrig(static_cast<CosmeticPassContext*>(context)->renderer);
+}
+void __cdecl ContinueCosmeticTransparent(void* context)
+{
+    const auto* value=static_cast<CosmeticPassContext*>(context);
+    if (g_cosmeticTransparentOrig) g_cosmeticTransparentOrig(value->renderer,value->pass);
+}
+void __fastcall CosmeticOpaqueDetour(void* self, void*)
+{
+    if (!g_inGameRender || g_cosmeticTexturePass) { if (g_cosmeticOpaqueOrig) g_cosmeticOpaqueOrig(self); return; }
+    CosmeticPassContext context{self,0};
+    g_cosmeticTexturePass=true;
+    __try {
+        if (!cosmetic::DrawTextures(ContinueCosmeticOpaque,&context)) ContinueCosmeticOpaque(&context);
+    } __finally { cosmetic::blood::glow::EndPass(); g_cosmeticTexturePass=false; }
+}
+void __fastcall CosmeticTransparentDetour(void* self, void*, int pass)
+{
+    if (!g_inGameRender || g_cosmeticTexturePass) {
+        if (g_cosmeticTransparentOrig) g_cosmeticTransparentOrig(self,pass);
+        return;
+    }
+    CosmeticPassContext context{self,pass};
+    g_cosmeticTexturePass=true;
+    __try {
+        if (!cosmetic::DrawTextures(ContinueCosmeticTransparent,&context)) ContinueCosmeticTransparent(&context);
+    } __finally { cosmetic::blood::glow::EndPass(); g_cosmeticTexturePass=false; }
 }
 
 void __fastcall ViewRenderDetour(void* self, void*)
@@ -979,13 +1045,126 @@ void __fastcall AppRenderDetour(void* self, void*)
     g_entityFrameAlpha = g_active.load(std::memory_order_relaxed) ? CurrentRenderFraction() : 1;
     g_entityFrameTick = game::TickCount();
     BeginEntityFrame();
+    const bool cosmeticFrame = cosmetic::models::BeginFrame(game::Renderer(), g_cosmeticHooksReady.load());
     // Includes all queue building, scene drawing, EndScene and Present paths,
     // including early returns and exception unwinding. Never leak into Fn_Tick.
     __try { if (g_appRenderOrig) g_appRenderOrig(self); }
-    __finally { RestoreRenderCamera(); FinishEntityFrame(); FinishInventoryFrame();
+    __finally { if (cosmeticFrame) cosmetic::models::EndFrame();
+        RestoreRenderCamera(); FinishEntityFrame(); FinishInventoryFrame();
         g_entityFrameAlpha = 1; g_inGameRender = false; }
 }
 } // namespace
+
+bool InstallCosmeticHooks()
+{
+    if (g_cosmeticHooksReady.load()) return true;
+    char exe[MAX_PATH]{};
+    if (!GetModuleFileNameA(nullptr, exe, MAX_PATH) || Sha256FileHex(exe) !=
+        "49099fef26610e84f94f1aa2dd33aa9e83413ee24ff87fed63a8a98cc4f3daf0") return false;
+    uint8_t app[] = {0x8B,0x15,0,0,0,0,0x42,0x56,0x8B,0xF1};
+    const uint32_t frameGlobal = uint32_t(game::A(game::off::FrameCount));
+    memcpy(app+2,&frameGlobal,sizeof(frameGlobal));
+    const uint8_t submit[] = {0x55,0x8B,0xEC,0x83,0xE4,0xF0,0x83,0xEC,0x24};
+    const uint8_t nodes[] = {0x55,0x8B,0xEC,0x83,0xE4,0xF0,0x81,0xEC,0x94,0,0,0};
+    const uint8_t flush[] = {0x56,0x8B,0xF1,0x8A,0x86,0xC4,0x07,0,0};
+    struct Hook { uintptr_t va; void* detour; void** original; const uint8_t* bytes; size_t length; };
+    const Hook hooks[] = {
+        {kAppRender,(void*)&AppRenderDetour,(void**)&g_appRenderOrig,app,sizeof(app)},
+        {kEntitySubmit,(void*)&EntitySubmitDetour,(void**)&g_entitySubmitOrig,submit,sizeof(submit)},
+        {kNodeSubmit,(void*)&NodeSubmitDetour,(void**)&g_nodeSubmitOrig,nodes,sizeof(nodes)},
+        {kCosmeticFlush,(void*)&CosmeticFlushDetour,(void**)&g_cosmeticFlushOrig,flush,sizeof(flush)}
+    };
+    uint8_t bytes[16]{};
+    for (const auto& h : hooks) if (!*h.original &&
+        (!SafeReadBytes(game::A(h.va), bytes, h.length) || memcmp(bytes,h.bytes,h.length))) return false;
+    const Hook* created[4]{};
+    size_t count = 0;
+    bool ok = true;
+    for (const auto& h : hooks) {
+        if (*h.original) continue;
+        if (MH_CreateHook((void*)game::A(h.va),h.detour,h.original) != MH_OK) { ok=false; break; }
+        created[count++] = &h;
+    }
+    if (ok) for (size_t i=0;i<count;++i)
+        if (MH_QueueEnableHook((void*)game::A(created[i]->va)) != MH_OK) { ok=false; break; }
+    if (ok) ok = MH_ApplyQueued() == MH_OK;
+    if (!ok) {
+        for (size_t i=0;i<count;++i) {
+            MH_DisableHook((void*)game::A(created[i]->va));
+            MH_RemoveHook((void*)game::A(created[i]->va));
+            *created[i]->original = nullptr;
+        }
+        return false;
+    }
+    g_cosmeticHooksReady.store(true);
+    return true;
+}
+bool InstallCosmeticTextureHooks()
+{
+    if (g_cosmeticTextureHooksReady.load()) return true;
+    if (!InstallCosmeticHooks() || !cosmetic::textures::VerifyPassHookFingerprints()) return false;
+    const uintptr_t opaque=game::A(cosmetic::textures::kOpaqueDraw);
+    const uintptr_t transparent=game::A(cosmetic::textures::kTransparentDraw);
+    if (MH_CreateHook((void*)opaque,(void*)&CosmeticOpaqueDetour,(void**)&g_cosmeticOpaqueOrig) != MH_OK) return false;
+    bool second=MH_CreateHook((void*)transparent,(void*)&CosmeticTransparentDetour,
+        (void**)&g_cosmeticTransparentOrig) == MH_OK;
+    const bool ok=second && MH_QueueEnableHook((void*)opaque)==MH_OK &&
+        MH_QueueEnableHook((void*)transparent)==MH_OK && MH_ApplyQueued()==MH_OK;
+    if (!ok) {
+        MH_DisableHook((void*)opaque); MH_RemoveHook((void*)opaque);
+        if (second) { MH_DisableHook((void*)transparent); MH_RemoveHook((void*)transparent); }
+        g_cosmeticOpaqueOrig=nullptr; g_cosmeticTransparentOrig=nullptr;
+        return false;
+    }
+    g_cosmeticTextureHooksReady.store(true);
+    return true;
+}
+bool InstallCosmeticBloodHook()
+{
+    if (g_cosmeticBloodReady) return true;
+    char exe[MAX_PATH]{};
+    if (!GetModuleFileNameA(nullptr,exe,MAX_PATH) || Sha256FileHex(exe)!=
+        "49099fef26610e84f94f1aa2dd33aa9e83413ee24ff87fed63a8a98cc4f3daf0" ||
+        !cosmetic::blood::VerifyHookFingerprint()) return false;
+    auto* address=reinterpret_cast<void*>(game::A(cosmetic::blood::kTextureBinder));
+    if (MH_CreateHook(address,reinterpret_cast<void*>(&CosmeticBloodDetour),
+        reinterpret_cast<void**>(&g_cosmeticBloodOrig))!=MH_OK) return false;
+    if (MH_EnableHook(address)!=MH_OK) {
+        MH_RemoveHook(address); g_cosmeticBloodOrig=nullptr; return false;
+    }
+    g_cosmeticBloodReady=true;
+    return true;
+}
+bool InstallCosmeticGlowHooks()
+{
+    if (g_glowHooksReady) return true;
+    if (!InstallCosmeticTextureHooks()) return false; // includes executable SHA gate
+    auto setup=cosmetic::blood::fx::kMeshSetupFingerprint;
+    const uint32_t global=uint32_t(game::A(0x525500));
+    memcpy(setup.data()+2,&global,4);
+    uint8_t primitive[]={0xA1,0,0,0,0,0x8B,0x90,0xB0,0x07,0,0,0x8B,0x02,0x8B,0x10,0x56};
+    memcpy(primitive+1,&global,4);
+    uint8_t actualSetup[sizeof(setup)]{},actualPrimitive[sizeof(primitive)]{};
+    const auto mesh=game::A(cosmetic::blood::fx::kMeshSetup);
+    const auto draw=game::A(cosmetic::blood::fx::kPrimitiveDraw);
+    if (!SafeReadBytes(mesh,actualSetup,sizeof(actualSetup)) ||
+        memcmp(actualSetup,setup.data(),sizeof(actualSetup)) ||
+        !SafeReadBytes(draw,actualPrimitive,sizeof(actualPrimitive)) ||
+        memcmp(actualPrimitive,primitive,sizeof(actualPrimitive))) return false;
+    if (MH_CreateHook((void*)mesh,(void*)&GlowMeshDetour,(void**)&g_glowMeshOrig)!=MH_OK) return false;
+    const bool second=MH_CreateHook((void*)draw,(void*)&GlowPrimitiveDetour,
+        (void**)&g_glowPrimitiveOrig)==MH_OK;
+    const bool ok=second && MH_QueueEnableHook((void*)mesh)==MH_OK &&
+        MH_QueueEnableHook((void*)draw)==MH_OK && MH_ApplyQueued()==MH_OK;
+    if (!ok) {
+        MH_DisableHook((void*)mesh); MH_RemoveHook((void*)mesh);
+        if (second) { MH_DisableHook((void*)draw); MH_RemoveHook((void*)draw); }
+        g_glowMeshOrig=nullptr; g_glowPrimitiveOrig=nullptr;
+        return false;
+    }
+    g_glowHooksReady=true;
+    return true;
+}
 
 bool InstallHooks(bool cameraOnly)
 {
@@ -1015,8 +1194,8 @@ bool InstallHooks(bool cameraOnly)
         memcmp(current, primaryTail, sizeof(primaryTail))) {
         ETH_ERROR("EthhhPatch refused camera hooks: primary render path changed"); return false;
     }
-    if (!cameraOnly && (!SafeReadBytes(game::A(kEntitySubmit),current,sizeof(submitBytes)) || memcmp(current,submitBytes,sizeof(submitBytes)) ||
-        !SafeReadBytes(game::A(kNodeSubmit),current,sizeof(nodeBytes)) || memcmp(current,nodeBytes,sizeof(nodeBytes)))) {
+    if (!cameraOnly && ((!g_entitySubmitOrig && (!SafeReadBytes(game::A(kEntitySubmit),current,sizeof(submitBytes)) || memcmp(current,submitBytes,sizeof(submitBytes)))) ||
+        (!g_nodeSubmitOrig && (!SafeReadBytes(game::A(kNodeSubmit),current,sizeof(nodeBytes)) || memcmp(current,nodeBytes,sizeof(nodeBytes)))))) {
         ETH_ERROR("EthhhPatch refused entity hooks: render entry bytes changed"); return false;
     }
     const uint8_t inventoryEntry[] = {0x8B,0x54,0x24,0x08,0x8B,0x0A,0x8B,0xC1};
@@ -1111,13 +1290,15 @@ void UninstallHooks()
         (void*)game::A(kEntitySubmit), (void*)game::A(kNodeSubmit), (void*)game::A(kInventoryMove),
         (void*)game::A(kUiObjectDraw), (void*)game::A(kGlyphClip) };
     for (void* target : targets) {
+        if (g_cosmeticHooksReady.load() &&
+            (target == (void*)game::A(kEntitySubmit) || target == (void*)game::A(kNodeSubmit))) continue;
         MH_DisableHook(target);
         MH_RemoveHook(target);
     }
     g_sphereCullOrig = nullptr; g_hudPulseOrig = nullptr; g_movieDrawOrig = nullptr;
     g_inventoryMoveOrig = nullptr;
     g_uiObjectDrawOrig = nullptr; g_glyphClipOrig = nullptr;
-    g_entitySubmitOrig = nullptr; g_nodeSubmitOrig = nullptr;
+    if (!g_cosmeticHooksReady.load()) { g_entitySubmitOrig = nullptr; g_nodeSubmitOrig = nullptr; }
     ETH_INFO("EthhhPatch compatibility hooks removed");
 }
 
@@ -1336,11 +1517,23 @@ void Shutdown()
     g_mouseLookEnabled = false;
     g_cameraHooksReady.store(false);
     void* targets[] = { (void*)game::A(kViewRender), (void*)game::A(kAppRender),
-        (void*)game::A(kBuiltinFieldGetter) };
+        (void*)game::A(kBuiltinFieldGetter), (void*)game::A(kEntitySubmit),
+        (void*)game::A(kNodeSubmit), (void*)game::A(kCosmeticFlush),
+        (void*)game::A(cosmetic::textures::kOpaqueDraw), (void*)game::A(cosmetic::textures::kTransparentDraw),
+        (void*)game::A(cosmetic::blood::kTextureBinder),
+        (void*)game::A(cosmetic::blood::fx::kMeshSetup),
+        (void*)game::A(cosmetic::blood::fx::kPrimitiveDraw) };
     for (void* target : targets) { MH_DisableHook(target); MH_RemoveHook(target); }
     g_viewRenderOrig = nullptr; g_appRenderOrig = nullptr; g_builtinFieldOrig = nullptr;
+    g_entitySubmitOrig = nullptr; g_nodeSubmitOrig = nullptr; g_cosmeticFlushOrig = nullptr;
+    g_cosmeticHooksReady.store(false);
+    g_cosmeticTextureHooksReady.store(false);
+    g_cosmeticOpaqueOrig=nullptr; g_cosmeticTransparentOrig=nullptr;
+    g_cosmeticBloodOrig=nullptr; g_cosmeticBloodReady=false;
+    g_glowMeshOrig=nullptr; g_glowPrimitiveOrig=nullptr; g_glowHooksReady=false;
 }
 bool HooksReady() { return g_hooksReady.load(); }
+bool InNativeRender() { return g_inGameRender; }
 bool Active() { return g_active.load(); }
 
 bool AdjustHudProjection(uintptr_t returnAddress, const D3DMATRIX* input, D3DMATRIX& output)
